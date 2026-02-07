@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String
+  role      String   // "ADMIN", "SISWA", "PETUGAS"
+  qrCode    String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  borrowings Borrowing[]
+  visits    Visit[]
+  payments  Payment[] // Admin yang memproses pembayaran
+}
+
+model Category {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  books       Book[]
+}
+
+model Book {
+  id         Int        @id @default(autoincrement())
+  title      String
+  author     String
+  category   Category?  @relation(fields: [categoryId], references: [id])
+  categoryId Int?
+  description String?    @db.Text
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  copies     BookCopy[]
+}
+
+model BookCopy {
+  id         Int         @id @default(autoincrement())
+  book       Book        @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  bookId     Int
+  copyNumber Int
+  qrCode     String?     @db.Text
+  status     String      @default("AVAILABLE") // AVAILABLE, BORROWED, DAMAGED, LOST
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  borrowings Borrowing[]
+
+  @@unique([bookId, copyNumber])
+}
+
+model Borrowing {
+  id               Int       @id @default(autoincrement())
+  user             User      @relation(fields: [userId], references: [id])
+  userId           Int
+  bookCopy         BookCopy  @relation(fields: [bookCopyId], references: [id])
+  bookCopyId       Int
+  status           String    @default("PENDING") // PENDING, BORROWED, RETURN_PENDING, RETURNED, REJECTED
+  borrowDate       DateTime?
+  dueDate          DateTime? // Tanggal jatuh tempo (borrowDate + 7 hari)
+  actualReturnDate DateTime? // Tanggal aktual pengembalian
+  condition        String?   // Kondisi buku saat dikembalikan: GOOD, DAMAGED, LOST
+  lateFee          Int       @default(0) // Denda keterlambatan (Rp 1000/hari)
+  damageFee        Int       @default(0) // Denda kerusakan/hilang
+  totalFine        Int       @default(0) // Total denda
+  isPaid           Boolean   @default(false) // Status pembayaran denda
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  payment          Payment?
+}
+
+model Payment {
+  id          Int       @id @default(autoincrement())
+  borrowing   Borrowing @relation(fields: [borrowingId], references: [id])
+  borrowingId Int       @unique
+  amount      Int       // Total denda yang harus dibayar
+  amountPaid  Int       // Nominal yang dibayarkan
+  change      Int       // Kembalian
+  paidAt      DateTime  @default(now())
+  paidBy      User      @relation(fields: [paidById], references: [id])
+  paidById    Int       // Admin yang memproses pembayaran
+}
+
+model Visit {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  visitDate DateTime @default(now())
+  createdAt DateTime @default(now())
+}
