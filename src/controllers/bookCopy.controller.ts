@@ -71,7 +71,7 @@ export const updateCopyStatus = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    if (!['AVAILABLE', 'DAMAGED', 'LOST', 'BORROWED'].includes(status)) {
+    if (!['AVAILABLE', 'DAMAGED', 'LOST', 'BORROWED', 'RESERVED'].includes(status)) {
         return res.status(400).json({ message: "Invalid status" });
     }
 
@@ -79,14 +79,14 @@ export const updateCopyStatus = async (req: Request, res: Response) => {
         const copy = await prisma.bookCopy.findUnique({ where: { id: Number(id) } });
         if (!copy) return res.status(404).json({ message: "Copy not found" });
 
-        // Prevent modifying BORROWED copies directly to maintain data integrity
-        if (copy.status === 'BORROWED') {
-            return res.status(400).json({ message: "Cannot change status of a borrowed book. Please process return first." });
+        // Prevent modifying BORROWED or RESERVED copies directly to maintain data integrity
+        if (copy.status === 'BORROWED' || copy.status === 'RESERVED') {
+            return res.status(400).json({ message: "Cannot change status of a borrowed/reserved book. Please process through borrow flow." });
         }
 
-        // Prevent changing TO borrowed manually (should use borrow flow)
-        if (status === 'BORROWED') {
-            return res.status(400).json({ message: "Cannot manually set status to BORROWED. Use borrowing flow." });
+        // Prevent changing TO borrowed/reserved manually (should use borrow flow)
+        if (status === 'BORROWED' || status === 'RESERVED') {
+            return res.status(400).json({ message: "Cannot manually set status to BORROWED/RESERVED. Use borrowing flow." });
         }
 
         const updated = await prisma.bookCopy.update({

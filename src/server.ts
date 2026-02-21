@@ -7,6 +7,8 @@ import userRoutes from './routes/user.routes';
 import categoryRoutes from './routes/category.routes';
 import visitRoutes from './routes/visit.routes';
 import bookCopyRoutes from './routes/bookCopy.routes';
+import qrRoutes from './routes/qr';
+import exportRoutes from './routes/export.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,6 +24,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/visits', visitRoutes);
 app.use('/api/copies', bookCopyRoutes);
+app.use('/api/qr', qrRoutes);
+app.use('/api/export', exportRoutes);
 
 app.get('/', (req, res) => {
   res.send('QR Backend is running 🚀');

@@ -7,8 +7,6 @@ export const getBooks = async (req: Request, res: Response) => {
         const { search, categoryId } = req.query;
         const where: any = {};
 
-        console.log('Fetching books with params:', { search, categoryId });
-
         if (search) {
             where.OR = [
                 { title: { contains: String(search) } },
@@ -28,7 +26,6 @@ export const getBooks = async (req: Request, res: Response) => {
             }
         });
 
-        console.log(`Found ${books.length} books`);
 
         // Transform data to include dynamic stock count
         const booksWithStock = books.map(book => ({

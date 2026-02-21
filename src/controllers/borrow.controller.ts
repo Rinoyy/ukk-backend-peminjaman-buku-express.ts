@@ -145,6 +145,12 @@ export const borrowBook = async (req: AuthRequest, res: Response) => {
             return res.status(400).json({ message: "Tidak ada copy buku yang tersedia" });
         }
 
+        // Reserve the copy to prevent double-booking
+        await prisma.bookCopy.update({
+            where: { id: availableCopy.id },
+            data: { status: 'RESERVED' }
+        });
+
         const borrowing = await prisma.borrowing.create({
             data: {
                 userId,
@@ -163,7 +169,7 @@ export const borrowBook = async (req: AuthRequest, res: Response) => {
 // 2. Admin Approves/Rejects Borrow
 export const handleBorrowRequest = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { status } = req.body; // 'BORROWED' or 'REJECTED'
+    const { status, rejectReason } = req.body; // 'BORROWED' or 'REJECTED'
 
     if (!['BORROWED', 'REJECTED'].includes(status)) {
         return res.status(400).json({ message: "Invalid status" });
@@ -176,12 +182,16 @@ export const handleBorrowRequest = async (req: Request, res: Response) => {
         });
         if (!borrowing) return res.status(404).json({ message: "Borrowing not found" });
 
+        if (borrowing.status !== 'PENDING') {
+            return res.status(400).json({ message: "Only PENDING borrowings can be approved/rejected" });
+        }
+
         if (status === 'BORROWED') {
             // Set due date (7 days from now)
             const dueDate = new Date();
             dueDate.setDate(dueDate.getDate() + LOAN_DURATION_DAYS);
 
-            // Update book copy status
+            // Update book copy status: RESERVED -> BORROWED
             await prisma.bookCopy.update({
                 where: { id: borrowing.bookCopyId },
                 data: { status: 'BORROWED' }
@@ -196,10 +206,18 @@ export const handleBorrowRequest = async (req: Request, res: Response) => {
                 }
             });
         } else {
-            // Rejected - just update status
+            // Rejected - release copy back to AVAILABLE
+            await prisma.bookCopy.update({
+                where: { id: borrowing.bookCopyId },
+                data: { status: 'AVAILABLE' }
+            });
+
             await prisma.borrowing.update({
                 where: { id: Number(id) },
-                data: { status }
+                data: {
+                    status,
+                    rejectReason: rejectReason || null
+                }
             });
         }
 
@@ -238,7 +256,7 @@ export const returnBookRequest = async (req: AuthRequest, res: Response) => {
 // 4. Admin Approves/Rejects Return with Condition
 export const handleReturnRequest = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { status, condition, damageFee = 0 } = req.body;
+    const { status, condition, damageFee = 0, rejectReason } = req.body;
     // status: 'RETURNED' or 'BORROWED' (reject)
     // condition: 'GOOD', 'DAMAGED', 'LOST'
     // damageFee: number (for DAMAGED/LOST)
@@ -253,6 +271,10 @@ export const handleReturnRequest = async (req: Request, res: Response) => {
             include: { bookCopy: true }
         });
         if (!borrowing) return res.status(404).json({ message: "Borrowing not found" });
+
+        if (borrowing.status !== 'RETURN_PENDING') {
+            return res.status(400).json({ message: "Only RETURN_PENDING borrowings can be verified" });
+        }
 
         if (status === 'RETURNED') {
             const actualReturnDate = new Date();
@@ -300,7 +322,10 @@ export const handleReturnRequest = async (req: Request, res: Response) => {
             // Revert to BORROWED (reject return request)
             await prisma.borrowing.update({
                 where: { id: Number(id) },
-                data: { status }
+                data: {
+                    status,
+                    rejectReason: rejectReason || null
+                }
             });
             res.json({ message: "Return rejected" });
         }

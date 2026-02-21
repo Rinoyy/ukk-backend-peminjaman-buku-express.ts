@@ -66,6 +66,7 @@ model Borrowing {
   dueDate          DateTime? // Tanggal jatuh tempo (borrowDate + 7 hari)
   actualReturnDate DateTime? // Tanggal aktual pengembalian
   condition        String?   // Kondisi buku saat dikembalikan: GOOD, DAMAGED, LOST
+  rejectReason     String?   // Alasan penolakan oleh admin
   lateFee          Int       @default(0) // Denda keterlambatan (Rp 1000/hari)
   damageFee        Int       @default(0) // Denda kerusakan/hilang
   totalFine        Int       @default(0) // Total denda
