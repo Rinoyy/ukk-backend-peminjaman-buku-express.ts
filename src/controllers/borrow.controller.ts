@@ -166,6 +166,47 @@ export const borrowBook = async (req: AuthRequest, res: Response) => {
     }
 };
 
+// Cancel a PENDING borrow request (Siswa)
+export const cancelBorrow = async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+    const userId = req.user?.userId;
+
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    try {
+        const borrowing = await prisma.borrowing.findUnique({
+            where: { id: Number(id) },
+            include: { bookCopy: true }
+        });
+
+        if (!borrowing) return res.status(404).json({ message: "Peminjaman tidak ditemukan" });
+
+        if (borrowing.userId !== userId) {
+            return res.status(403).json({ message: "Unauthorized" });
+        }
+
+        if (borrowing.status !== 'PENDING') {
+            return res.status(400).json({ message: "Hanya peminjaman dengan status PENDING yang bisa dibatalkan" });
+        }
+
+        // Release the reserved copy back to AVAILABLE
+        await prisma.bookCopy.update({
+            where: { id: borrowing.bookCopyId },
+            data: { status: 'AVAILABLE' }
+        });
+
+        // Update borrowing status to CANCELLED
+        await prisma.borrowing.update({
+            where: { id: Number(id) },
+            data: { status: 'CANCELLED' }
+        });
+
+        res.json({ message: "Peminjaman berhasil dibatalkan" });
+    } catch (error) {
+        res.status(500).json({ message: "Error cancelling borrow", error });
+    }
+};
+
 // 2. Admin Approves/Rejects Borrow
 export const handleBorrowRequest = async (req: Request, res: Response) => {
     const { id } = req.params;
@@ -178,7 +219,12 @@ export const handleBorrowRequest = async (req: Request, res: Response) => {
     try {
         const borrowing = await prisma.borrowing.findUnique({
             where: { id: Number(id) },
-            include: { bookCopy: true }
+            include: {
+                bookCopy: {
+                    include: { book: { select: { title: true } } }
+                },
+                user: { select: { username: true } }
+            }
         });
         if (!borrowing) return res.status(404).json({ message: "Borrowing not found" });
 
@@ -186,10 +232,17 @@ export const handleBorrowRequest = async (req: Request, res: Response) => {
             return res.status(400).json({ message: "Only PENDING borrowings can be approved/rejected" });
         }
 
+        const bookTitle = borrowing.bookCopy.book.title;
+        const username = borrowing.user.username;
+
         if (status === 'BORROWED') {
             // Set due date (7 days from now)
             const dueDate = new Date();
             dueDate.setDate(dueDate.getDate() + LOAN_DURATION_DAYS);
+
+            // Pickup deadline: 2 days from now
+            const pickupDeadline = new Date();
+            pickupDeadline.setDate(pickupDeadline.getDate() + 2);
 
             // Update book copy status: RESERVED -> BORROWED
             await prisma.bookCopy.update({
@@ -205,6 +258,19 @@ export const handleBorrowRequest = async (req: Request, res: Response) => {
                     dueDate
                 }
             });
+
+            // Create notification for the student
+            const dueDateStr = dueDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+            const pickupDeadlineStr = pickupDeadline.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+
+            await prisma.notification.create({
+                data: {
+                    userId: borrowing.userId,
+                    title: 'Peminjaman Disetujui! ✅',
+                    message: `Halo ${username}, buku "${bookTitle}" bisa diambil di perpustakaan maksimal sampai tanggal ${pickupDeadlineStr}. Jika tidak diambil, peminjaman akan hangus.\n\nBatas pengembalian: ${dueDateStr}.`,
+                    type: 'BORROW_APPROVED'
+                }
+            });
         } else {
             // Rejected - release copy back to AVAILABLE
             await prisma.bookCopy.update({
@@ -217,6 +283,16 @@ export const handleBorrowRequest = async (req: Request, res: Response) => {
                 data: {
                     status,
                     rejectReason: rejectReason || null
+                }
+            });
+
+            // Create rejection notification
+            await prisma.notification.create({
+                data: {
+                    userId: borrowing.userId,
+                    title: 'Peminjaman Ditolak ❌',
+                    message: `Maaf ${username}, peminjaman buku "${bookTitle}" ditolak oleh petugas.${rejectReason ? ` Alasan: ${rejectReason}` : ''}`,
+                    type: 'BORROW_REJECTED'
                 }
             });
         }

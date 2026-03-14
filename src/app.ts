@@ -1,5 +1,6 @@
 import express from "express";
 import cors from 'cors';
+import path from 'path';
 import authRoutes from "./routes/auth.routes";
 import bookRoutes from "./routes/book.routes";
 import borrowRoutes from "./routes/borrow.routes";
@@ -11,6 +12,9 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// Serve uploaded files
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes
 app.use("/api/auth", authRoutes);

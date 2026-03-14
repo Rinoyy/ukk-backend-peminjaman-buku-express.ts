@@ -67,6 +67,8 @@ export const getBookById = async (req: Request, res: Response) => {
 
 export const createBook = async (req: Request, res: Response) => {
     const { title, author, categoryId, stock, description } = req.body;
+    const image = req.file ? `/uploads/${req.file.filename}` : null;
+
     try {
         // 1. Create the Book
         const book = await prisma.book.create({
@@ -74,7 +76,8 @@ export const createBook = async (req: Request, res: Response) => {
                 title,
                 author,
                 categoryId: categoryId ? Number(categoryId) : null,
-                description
+                description,
+                image
             }
         });
 
@@ -128,15 +131,24 @@ export const createBook = async (req: Request, res: Response) => {
 export const updateBook = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { title, author, categoryId, description } = req.body;
+    const image = req.file ? `/uploads/${req.file.filename}` : undefined;
+
     try {
+        const data: any = {
+            title,
+            author,
+            categoryId: categoryId ? Number(categoryId) : null,
+            description,
+        };
+
+        // Only update image if a new file was uploaded
+        if (image !== undefined) {
+            data.image = image;
+        }
+
         const book = await prisma.book.update({
             where: { id: Number(id) },
-            data: {
-                title,
-                author,
-                categoryId: categoryId ? Number(categoryId) : null,
-                description
-            },
+            data,
             include: { category: true }
         });
         res.json(book);

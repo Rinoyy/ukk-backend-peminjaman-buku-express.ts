@@ -18,6 +18,7 @@ model User {
   borrowings Borrowing[]
   visits    Visit[]
   payments  Payment[] // Admin yang memproses pembayaran
+  notifications Notification[]
 }
 
 model Category {
@@ -36,6 +37,7 @@ model Book {
   category   Category?  @relation(fields: [categoryId], references: [id])
   categoryId Int?
   description String?    @db.Text
+  image      String?
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
   copies     BookCopy[]
@@ -93,5 +95,16 @@ model Visit {
   user      User     @relation(fields: [userId], references: [id])
   userId    Int
   visitDate DateTime @default(now())
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  title     String
+  message   String   @db.Text
+  type      String   // BORROW_APPROVED, BORROW_REJECTED, PICKUP_REMINDER, GENERAL
+  isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
 }

@@ -8,7 +8,8 @@ import {
     checkEligibility,
     getMyFines,
     payFine,
-    getFinesRecap
+    getFinesRecap,
+    cancelBorrow
 } from '../controllers/borrow.controller';
 import { authenticateJWT, authorizeRole } from '../middlewares/auth.middleware';
 
@@ -20,6 +21,7 @@ router.get('/', authenticateJWT, getBorrowings);
 router.get('/check-eligibility', authenticateJWT, authorizeRole(['SISWA']), checkEligibility);
 router.get('/my-fines', authenticateJWT, authorizeRole(['SISWA']), getMyFines);
 router.post('/', authenticateJWT, authorizeRole(['SISWA']), borrowBook);
+router.post('/:id/cancel', authenticateJWT, authorizeRole(['SISWA']), cancelBorrow);
 router.post('/:id/return', authenticateJWT, authorizeRole(['SISWA']), returnBookRequest);
 
 // Admin
