@@ -17,7 +17,10 @@ export const authenticateJWT = (req: AuthRequest, res: Response, next: NextFunct
     if (token) {
         jwt.verify(token, SECRET_KEY, (err, decoded) => {
             if (err) {
-                return res.sendStatus(403);
+                if (err.name === 'TokenExpiredError') {
+                    return res.status(401).json({ message: 'Token expired, silakan login ulang' });
+                }
+                return res.status(403).json({ message: 'Token tidak valid' });
             }
             req.user = {
                 userId: (decoded as any).id,
