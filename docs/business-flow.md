@@ -14,17 +14,19 @@
 
 ### 1. Manajemen Pengguna (User Management)
 
-**Entitas:** User (Siswa, Admin, Petugas)
+**Entitas:** User (Siswa, Admin), StudentNISN
 
 **Proses bisnis:**
-- Siswa mendaftar mandiri — sistem otomatis generate QR Code unik
+- Siswa mendaftar mandiri — **wajib memasukkan NISN** yang terdaftar di sistem sekolah
+- Jika NISN tidak ada di tabel `StudentNISN`, pendaftaran ditolak
 - Admin login menggunakan kredensial yang disiapkan sebelumnya
 - Setiap pengguna mendapat JWT token untuk autentikasi sesi
 
 **Aturan:**
 - Password disimpan terenkripsi (bcrypt)
-- QR Code dihasilkan dari data unik pengguna (ID/NIS) menggunakan library `qrcode`
+- QR Code dihasilkan dari data unik pengguna (ID/username) menggunakan library `qrcode`
 - Token JWT memiliki masa berlaku dan menyimpan `userId` + `role`
+- Satu NISN hanya bisa digunakan untuk satu akun
 
 ---
 
@@ -118,7 +120,7 @@ Admin input kondisi fisik buku:
 
 #### Fase 5: Pembayaran Denda
 ```
-Siswa bayar denda tunai ke petugas
+Siswa bayar denda tunai ke admin
         ↓
 Admin input jumlah bayar
         ↓
@@ -204,6 +206,7 @@ Untuk setiap record:
 
 | Aturan | Detail |
 |---|---|
+| Registrasi wajib NISN | Hanya siswa dengan NISN terdaftar yang bisa mendaftar |
 | Satu peminjaman aktif per siswa | Siswa tidak bisa pinjam 2 buku bersamaan |
 | Blokir saat ada denda | Denda belum dibayar → tidak bisa pinjam baru |
 | Batas waktu pinjam | 7 hari dari tanggal persetujuan |
@@ -215,15 +218,15 @@ Untuk setiap record:
 
 ## Pemisahan Akses Berdasarkan Role
 
-| Endpoint | SISWA | ADMIN | PETUGAS |
-|---|---|---|---|
-| Register | ✓ | - | - |
-| Login | ✓ | ✓ | ✓ |
-| Lihat buku | ✓ | ✓ | ✓ |
-| Ajukan pinjam | ✓ | - | - |
-| Approve/Reject pinjam | - | ✓ | - |
-| Verifikasi pengembalian | - | ✓ | - |
-| Proses pembayaran | - | ✓ | - |
-| CRUD buku & kategori | - | ✓ | - |
-| Tambah petugas | - | ✓ | - |
-| Lihat data kunjungan | - | ✓ | ✓ |
+| Endpoint | SISWA | ADMIN |
+|---|---|---|
+| Register (butuh NISN) | ✓ | - |
+| Login | ✓ | ✓ |
+| Lihat buku | ✓ | ✓ |
+| Ajukan pinjam | ✓ | - |
+| Approve/Reject pinjam | - | ✓ |
+| Verifikasi pengembalian | - | ✓ |
+| Proses pembayaran | - | ✓ |
+| CRUD buku & kategori | - | ✓ |
+| Kelola NISN siswa | - | ✓ |
+| Lihat data kunjungan | - | ✓ |

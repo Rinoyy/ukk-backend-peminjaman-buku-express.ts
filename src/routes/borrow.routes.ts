@@ -25,9 +25,9 @@ router.post('/:id/cancel', authenticateJWT, authorizeRole(['SISWA']), cancelBorr
 router.post('/:id/return', authenticateJWT, authorizeRole(['SISWA']), returnBookRequest);
 
 // Admin
-router.post('/:id/approve', authenticateJWT, authorizeRole(['ADMIN', 'PETUGAS']), handleBorrowRequest); // body: { status: 'BORROWED' | 'REJECTED' }
-router.post('/:id/verify-return', authenticateJWT, authorizeRole(['ADMIN', 'PETUGAS']), handleReturnRequest); // body: { status, condition, damageFee }
-router.get('/fines-recap', authenticateJWT, authorizeRole(['ADMIN', 'PETUGAS']), getFinesRecap);
-router.post('/:id/pay', authenticateJWT, authorizeRole(['ADMIN', 'PETUGAS']), payFine); // body: { amountPaid }
+router.post('/:id/approve', authenticateJWT, authorizeRole(['ADMIN']), handleBorrowRequest); // body: { status: 'BORROWED' | 'REJECTED' }
+router.post('/:id/verify-return', authenticateJWT, authorizeRole(['ADMIN']), handleReturnRequest); // body: { status, condition, damageFee }
+router.get('/fines-recap', authenticateJWT, authorizeRole(['ADMIN']), getFinesRecap);
+router.post('/:id/pay', authenticateJWT, authorizeRole(['ADMIN']), payFine); // body: { amountPaid }
 
 export default router;

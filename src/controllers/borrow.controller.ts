@@ -473,7 +473,7 @@ export const getBorrowings = async (req: AuthRequest, res: Response) => {
 
     try {
         let borrowings;
-        if (role === 'ADMIN' || role === 'PETUGAS') {
+        if (role === 'ADMIN') {
             borrowings = await prisma.borrowing.findMany({
                 include: {
                     user: { select: { username: true } },
@@ -506,7 +506,7 @@ export const getBorrowings = async (req: AuthRequest, res: Response) => {
 export const getFinesRecap = async (req: AuthRequest, res: Response) => {
     // Only Admin/Petugas
     const role = req.user?.role;
-    if (role !== 'ADMIN' && role !== 'PETUGAS') {
+    if (role !== 'ADMIN') {
         return res.status(403).json({ message: "Unauthorized" });
     }
 
