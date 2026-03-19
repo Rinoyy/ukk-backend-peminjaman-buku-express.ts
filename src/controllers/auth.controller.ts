@@ -1,11 +1,26 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import prisma from '../prisma'; // adjust path
+import prisma from '../prisma';
 import { generateQRCode } from '../utils/qr';
 
 const SECRET_KEY = process.env.JWT_SECRET || 'secret';
 
+/**
+ * Mendaftarkan akun siswa baru.
+ *
+ * Alur:
+ * 1. Validasi NISN dan password tidak kosong
+ * 2. Cek NISN terdaftar di data sekolah (StudentNISN)
+ * 3. Cek NISN belum dipakai akun lain
+ * 4. Hash password lalu simpan user ke database
+ * 5. Generate QR Code unik untuk siswa
+ *
+ * @route  POST /api/auth/register
+ * @access Public
+ * @param  req - Request body: { nisn, password }
+ * @param  res - 201 user data | 400 validasi gagal | 403 NISN tidak terdaftar | 500 server error
+ */
 export const register = async (req: Request, res: Response): Promise<void> => {
     const { nisn, password } = req.body;
 
@@ -55,6 +70,16 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     }
 };
 
+/**
+ * Login untuk semua role (Siswa pakai NISN, Admin/Petugas pakai username).
+ *
+ * Mengembalikan JWT token dan data user. Token berlaku 1 jam.
+ *
+ * @route  POST /api/auth/login
+ * @access Public
+ * @param  req - Request body: { nisn?, username?, password }
+ * @param  res - 200 { token, user } | 400 kredensial salah | 500 server error
+ */
 export const login = async (req: Request, res: Response): Promise<void> => {
     const { nisn, username, password } = req.body;
 

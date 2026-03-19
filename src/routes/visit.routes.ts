@@ -4,10 +4,13 @@ import { authenticateJWT, authorizeRole } from '../middlewares/auth.middleware';
 
 const router = Router();
 
-// Check-in endpoint (for QR scanning)
+// ── Siswa & Admin ────────────────────────────────────────────
+// POST /api/visits/checkin — catat kunjungan siswa via scan QR (body: { userId? })
 router.post('/checkin', authenticateJWT, checkIn);
 
-// Admin only - view visits
+// ── Admin ────────────────────────────────────────────────────
+// GET /api/visits              — semua kunjungan (support ?date=YYYY-MM-DD)
+// GET /api/visits/today/count  — jumlah kunjungan hari ini
 router.get('/', authenticateJWT, authorizeRole(['ADMIN']), getVisits);
 router.get('/today/count', authenticateJWT, authorizeRole(['ADMIN']), getTodayVisitsCount);
 

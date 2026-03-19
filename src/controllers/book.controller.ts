@@ -2,6 +2,15 @@ import { Request, Response } from 'express';
 import prisma from '../prisma';
 import { generateQRCode } from '../utils/qr';
 
+/**
+ * Mengambil daftar semua buku beserta stok yang tersedia.
+ * Mendukung filter pencarian berdasarkan judul/pengarang dan kategori.
+ *
+ * @route  GET /api/books?search=&categoryId=
+ * @access Public
+ * @param  req - Query: { search?, categoryId? }
+ * @param  res - 200 array buku dengan field stock & totalCopies | 500 server error
+ */
 export const getBooks = async (req: Request, res: Response) => {
     try {
         const { search, categoryId } = req.query;
@@ -41,6 +50,14 @@ export const getBooks = async (req: Request, res: Response) => {
     }
 };
 
+/**
+ * Mengambil detail satu buku berdasarkan ID, termasuk kategori dan stok tersedia.
+ *
+ * @route  GET /api/books/:id
+ * @access Public
+ * @param  req - Params: { id }
+ * @param  res - 200 data buku | 404 tidak ditemukan | 500 server error
+ */
 export const getBookById = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
@@ -65,6 +82,15 @@ export const getBookById = async (req: Request, res: Response) => {
     }
 };
 
+/**
+ * Membuat buku baru beserta sejumlah eksemplar (BookCopy).
+ * Setiap eksemplar otomatis diberi QR Code unik.
+ *
+ * @route  POST /api/books
+ * @access Admin
+ * @param  req - Body: { title, author, categoryId?, stock, description? }, File: gambar cover
+ * @param  res - 201 data buku lengkap | 500 server error
+ */
 export const createBook = async (req: Request, res: Response) => {
     const { title, author, categoryId, stock, description } = req.body;
     const image = req.file ? `/uploads/${req.file.filename}` : null;
@@ -128,6 +154,15 @@ export const createBook = async (req: Request, res: Response) => {
     }
 };
 
+/**
+ * Memperbarui data buku (judul, pengarang, kategori, deskripsi, dan gambar cover).
+ * Gambar hanya diperbarui jika ada file baru yang diunggah.
+ *
+ * @route  PUT /api/books/:id
+ * @access Admin
+ * @param  req - Params: { id }, Body: { title, author, categoryId?, description? }, File: gambar opsional
+ * @param  res - 200 data buku terbaru | 500 server error
+ */
 export const updateBook = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { title, author, categoryId, description } = req.body;
@@ -157,6 +192,14 @@ export const updateBook = async (req: Request, res: Response) => {
     }
 };
 
+/**
+ * Menghapus buku dari database beserta semua eksemplarnya (cascade delete).
+ *
+ * @route  DELETE /api/books/:id
+ * @access Admin
+ * @param  req - Params: { id }
+ * @param  res - 200 pesan sukses | 500 server error
+ */
 export const deleteBook = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {

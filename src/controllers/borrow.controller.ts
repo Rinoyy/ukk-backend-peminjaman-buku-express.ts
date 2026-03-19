@@ -1,18 +1,33 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma';
-import { AuthRequest } from '../middlewares/auth.middleware';
+import { AuthRequest } from '../types';
 
-// Helper: Calculate late fee (Rp 1000/day)
+/** Denda keterlambatan per hari dalam Rupiah */
 const LATE_FEE_PER_DAY = 1000;
+/** Durasi pinjam standar dalam hari */
 const LOAN_DURATION_DAYS = 7;
 
+/**
+ * Menghitung denda keterlambatan pengembalian buku (internal).
+ * @param dueDate    - Tanggal jatuh tempo
+ * @param returnDate - Tanggal aktual pengembalian
+ * @returns Total denda dalam Rupiah (0 jika tidak terlambat)
+ */
 const calculateLateFee = (dueDate: Date, returnDate: Date): number => {
     const diffTime = returnDate.getTime() - dueDate.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays > 0 ? diffDays * LATE_FEE_PER_DAY : 0;
 };
 
-// Check if siswa can borrow
+/**
+ * Mengecek apakah siswa bisa melakukan peminjaman buku baru.
+ * Siswa tidak bisa meminjam jika masih ada buku belum dikembalikan atau ada denda belum dibayar.
+ *
+ * @route  GET /api/borrow/eligibility
+ * @access Siswa
+ * @param  req - JWT token wajib ada
+ * @param  res - 200 { canBorrow, reason, hasUnreturnedBook, hasUnpaidFine, unpaidFineAmount }
+ */
 export const checkEligibility = async (req: AuthRequest, res: Response) => {
     const userId = req.user?.userId;
 
@@ -68,7 +83,14 @@ export const checkEligibility = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// Get user's unpaid fines
+/**
+ * Mengambil daftar denda yang belum dibayar milik siswa yang login.
+ *
+ * @route  GET /api/borrow/my-fines
+ * @access Siswa
+ * @param  req - JWT token wajib ada
+ * @param  res - 200 array peminjaman dengan denda | 401 unauthorized | 500 server error
+ */
 export const getMyFines = async (req: AuthRequest, res: Response) => {
     const userId = req.user?.userId;
 
@@ -95,7 +117,16 @@ export const getMyFines = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// 1. Siswa Requests a Borrow
+/**
+ * Siswa mengajukan permintaan peminjaman buku.
+ * Validasi eligibilitas dilakukan sebelum membuat record peminjaman.
+ * Eksemplar buku langsung di-reserve agar tidak bisa dipinjam orang lain.
+ *
+ * @route  POST /api/borrow
+ * @access Siswa
+ * @param  req - Body: { bookId }
+ * @param  res - 201 data peminjaman | 400 tidak eligible/stok habis | 500 server error
+ */
 export const borrowBook = async (req: AuthRequest, res: Response) => {
     const { bookId } = req.body;
     const userId = req.user?.userId;
@@ -166,7 +197,15 @@ export const borrowBook = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// Cancel a PENDING borrow request (Siswa)
+/**
+ * Siswa membatalkan permintaan peminjaman yang masih berstatus PENDING.
+ * Eksemplar buku yang sudah di-reserve akan dikembalikan ke status AVAILABLE.
+ *
+ * @route  PATCH /api/borrow/:id/cancel
+ * @access Siswa
+ * @param  req - Params: { id }
+ * @param  res - 200 pesan sukses | 400 status bukan PENDING | 403 bukan milik user | 404 tidak ditemukan
+ */
 export const cancelBorrow = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const userId = req.user?.userId;
@@ -207,7 +246,18 @@ export const cancelBorrow = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// 2. Admin Approves/Rejects Borrow
+/**
+ * Admin menyetujui atau menolak permintaan peminjaman.
+ * Jika disetujui: jatuh tempo dihitung (7 hari), status BookCopy berubah ke BORROWED,
+ * dan notifikasi dikirim ke siswa.
+ * Jika ditolak: eksemplar kembali ke AVAILABLE dan notifikasi penolakan dikirim.
+ *
+ * @route  PATCH /api/borrow/:id/approve  (status: 'BORROWED')
+ * @route  PATCH /api/borrow/:id/reject   (status: 'REJECTED')
+ * @access Admin
+ * @param  req - Params: { id }, Body: { status, rejectReason? }
+ * @param  res - 200 pesan sukses | 400 status tidak valid/bukan PENDING | 404 tidak ditemukan
+ */
 export const handleBorrowRequest = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { status, rejectReason } = req.body; // 'BORROWED' or 'REJECTED'
@@ -303,7 +353,15 @@ export const handleBorrowRequest = async (req: Request, res: Response) => {
     }
 };
 
-// 3. Siswa Requests Return
+/**
+ * Siswa mengajukan permintaan pengembalian buku.
+ * Hanya bisa dilakukan jika status BORROWED dan buku sudah diambil (isPickedUp = true).
+ *
+ * @route  PATCH /api/borrow/:id/return
+ * @access Siswa
+ * @param  req - Params: { id }
+ * @param  res - 200 data peminjaman terupdate | 400 kondisi tidak valid | 403 bukan milik user
+ */
 export const returnBookRequest = async (req: AuthRequest, res: Response) => {
     const { id } = req.params; // Borrowing ID
     const userId = req.user?.userId;
@@ -333,7 +391,15 @@ export const returnBookRequest = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// 3b. Admin Tandai Buku Sudah Diambil
+/**
+ * Admin menandai bahwa buku sudah diambil oleh siswa dari perpustakaan.
+ * Diperlukan sebelum siswa bisa mengajukan pengembalian.
+ *
+ * @route  PATCH /api/borrow/:id/pickup
+ * @access Admin
+ * @param  req - Params: { id }
+ * @param  res - 200 data peminjaman terupdate | 400 status tidak valid/sudah diambil | 404 tidak ditemukan
+ */
 export const markPickedUp = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
 
@@ -360,7 +426,16 @@ export const markPickedUp = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// 4. Admin Approves/Rejects Return with Condition
+/**
+ * Admin memverifikasi pengembalian buku dan menentukan kondisi fisiknya.
+ * Denda keterlambatan dihitung otomatis. Admin bisa menambah biaya kerusakan.
+ * Status BookCopy diperbarui sesuai kondisi (AVAILABLE/DAMAGED/LOST).
+ *
+ * @route  PATCH /api/borrow/:id/verify-return
+ * @access Admin
+ * @param  req - Params: { id }, Body: { status, condition, damageFee?, rejectReason? }
+ * @param  res - 200 { lateFee, damageFee, totalFine, isPaid } | 400 status tidak valid | 404 tidak ditemukan
+ */
 export const handleReturnRequest = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { status, condition, damageFee = 0, rejectReason } = req.body;
@@ -441,7 +516,15 @@ export const handleReturnRequest = async (req: Request, res: Response) => {
     }
 };
 
-// 5. Admin pays fine
+/**
+ * Admin memproses pembayaran denda dari siswa.
+ * Membuat record Payment dan menandai peminjaman sebagai lunas (isPaid = true).
+ *
+ * @route  POST /api/borrow/:id/pay-fine
+ * @access Admin
+ * @param  req - Params: { id }, Body: { amountPaid }
+ * @param  res - 200 { totalFine, amountPaid, change } | 400 sudah dibayar/bayar kurang | 404 tidak ditemukan
+ */
 export const payFine = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const { amountPaid } = req.body;
@@ -497,6 +580,14 @@ export const payFine = async (req: AuthRequest, res: Response) => {
     }
 };
 
+/**
+ * Mengambil daftar peminjaman. Admin melihat semua data, Siswa hanya melihat milik sendiri.
+ *
+ * @route  GET /api/borrow
+ * @access Admin (semua) | Siswa (milik sendiri)
+ * @param  req - JWT token menentukan scope data yang dikembalikan
+ * @param  res - 200 array peminjaman dengan relasi user, bookCopy, payment | 500 server error
+ */
 export const getBorrowings = async (req: AuthRequest, res: Response) => {
     // Admin sees all, Siswa sees own
     const userId = req.user?.userId;
@@ -533,7 +624,15 @@ export const getBorrowings = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// 6. Get Fines Recap for Admin
+/**
+ * Mengambil rekap denda untuk dashboard Admin.
+ * Menampilkan ringkasan (total lunas/belum) dan daftar semua peminjaman yang memiliki denda.
+ *
+ * @route  GET /api/borrow/fines-recap
+ * @access Admin
+ * @param  req - JWT token, role harus ADMIN
+ * @param  res - 200 { summary, fines } | 403 bukan admin | 500 server error
+ */
 export const getFinesRecap = async (req: AuthRequest, res: Response) => {
     // Only Admin/Petugas
     const role = req.user?.role;

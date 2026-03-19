@@ -1,8 +1,16 @@
 import { Response } from 'express';
 import prisma from '../prisma';
-import { AuthRequest } from '../middlewares/auth.middleware';
+import { AuthRequest } from '../types';
 
-// Get notifications for logged-in user
+/**
+ * Mengambil daftar notifikasi milik user yang sedang login (maks. 50 terakhir)
+ * beserta jumlah notifikasi yang belum dibaca.
+ *
+ * @route  GET /api/notifications
+ * @access Authenticated (Siswa/Admin)
+ * @param  req - JWT token wajib ada di header Authorization
+ * @param  res - 200 { notifications, unreadCount } | 401 unauthorized | 500 server error
+ */
 export const getNotifications = async (req: AuthRequest, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
@@ -24,7 +32,15 @@ export const getNotifications = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// Mark notification as read
+/**
+ * Menandai satu notifikasi sebagai sudah dibaca.
+ * Hanya notifikasi milik user yang login yang bisa diubah.
+ *
+ * @route  PATCH /api/notifications/:id/read
+ * @access Authenticated (Siswa/Admin)
+ * @param  req - Params: { id }
+ * @param  res - 200 pesan sukses | 401 unauthorized | 500 server error
+ */
 export const markAsRead = async (req: AuthRequest, res: Response) => {
     const userId = req.user?.userId;
     const { id } = req.params;
@@ -42,7 +58,14 @@ export const markAsRead = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// Mark all notifications as read
+/**
+ * Menandai semua notifikasi milik user yang login sebagai sudah dibaca.
+ *
+ * @route  PATCH /api/notifications/read-all
+ * @access Authenticated (Siswa/Admin)
+ * @param  req - JWT token wajib ada di header Authorization
+ * @param  res - 200 pesan sukses | 401 unauthorized | 500 server error
+ */
 export const markAllAsRead = async (req: AuthRequest, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });

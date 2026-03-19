@@ -1,8 +1,16 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma';
-import { AuthRequest } from '../middlewares/auth.middleware';
+import { AuthRequest } from '../types';
 
-// Check-in visitor (scan QR)
+/**
+ * Mencatat kunjungan siswa ke perpustakaan melalui scan QR Code.
+ * UserID dapat diambil dari body request (QR scan) atau dari JWT token.
+ *
+ * @route  POST /api/visits/check-in
+ * @access Authenticated (Admin scan QR siswa, atau siswa scan mandiri)
+ * @param  req - Body: { userId? } — jika kosong, diambil dari token
+ * @param  res - 201 data kunjungan | 400 user tidak valid | 500 server error
+ */
 export const checkIn = async (req: AuthRequest, res: Response) => {
     const { userId } = req.body;
 
@@ -33,7 +41,14 @@ export const checkIn = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// Get all visits (with optional date filter)
+/**
+ * Mengambil semua data kunjungan, dengan filter tanggal opsional.
+ *
+ * @route  GET /api/visits?date=YYYY-MM-DD
+ * @access Admin
+ * @param  req - Query: { date? } format YYYY-MM-DD
+ * @param  res - 200 array kunjungan | 500 server error
+ */
 export const getVisits = async (req: Request, res: Response) => {
     const { date } = req.query; // format: YYYY-MM-DD
 
@@ -66,7 +81,15 @@ export const getVisits = async (req: Request, res: Response) => {
     }
 };
 
-// Get today's visits count
+/**
+ * Mengambil jumlah kunjungan hari ini.
+ * Digunakan di halaman dashboard untuk menampilkan statistik harian.
+ *
+ * @route  GET /api/visits/today
+ * @access Admin
+ * @param  _req - Tidak ada parameter yang dibutuhkan
+ * @param  res  - 200 { count, date } | 500 server error
+ */
 export const getTodayVisitsCount = async (_req: Request, res: Response) => {
     try {
         const today = new Date();

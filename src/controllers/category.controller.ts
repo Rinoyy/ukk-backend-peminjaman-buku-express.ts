@@ -1,7 +1,14 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma';
 
-// Get all categories
+/**
+ * Mengambil semua kategori buku beserta jumlah buku di tiap kategori.
+ *
+ * @route  GET /api/categories
+ * @access Public
+ * @param  _req - Tidak ada parameter yang dibutuhkan
+ * @param  res  - 200 array kategori | 500 server error
+ */
 export const getCategories = async (_req: Request, res: Response) => {
     try {
         const categories = await prisma.category.findMany({
@@ -13,7 +20,14 @@ export const getCategories = async (_req: Request, res: Response) => {
     }
 };
 
-// Get category by ID
+/**
+ * Mengambil detail satu kategori beserta daftar bukunya.
+ *
+ * @route  GET /api/categories/:id
+ * @access Public
+ * @param  req - Params: { id }
+ * @param  res - 200 data kategori | 404 tidak ditemukan | 500 server error
+ */
 export const getCategoryById = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
@@ -31,7 +45,14 @@ export const getCategoryById = async (req: Request, res: Response) => {
     }
 };
 
-// Create category
+/**
+ * Membuat kategori buku baru.
+ *
+ * @route  POST /api/categories
+ * @access Admin
+ * @param  req - Body: { name, description? }
+ * @param  res - 201 data kategori baru | 500 server error
+ */
 export const createCategory = async (req: Request, res: Response) => {
     const { name, description } = req.body;
     try {
@@ -44,7 +65,14 @@ export const createCategory = async (req: Request, res: Response) => {
     }
 };
 
-// Update category
+/**
+ * Memperbarui nama atau deskripsi kategori.
+ *
+ * @route  PUT /api/categories/:id
+ * @access Admin
+ * @param  req - Params: { id }, Body: { name, description? }
+ * @param  res - 200 data kategori terbaru | 500 server error
+ */
 export const updateCategory = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { name, description } = req.body;
@@ -59,7 +87,15 @@ export const updateCategory = async (req: Request, res: Response) => {
     }
 };
 
-// Delete category
+/**
+ * Menghapus kategori dari database.
+ * Buku yang terhubung akan kehilangan kategorinya (set null).
+ *
+ * @route  DELETE /api/categories/:id
+ * @access Admin
+ * @param  req - Params: { id }
+ * @param  res - 200 pesan sukses | 500 server error
+ */
 export const deleteCategory = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {

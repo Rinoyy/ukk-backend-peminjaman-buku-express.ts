@@ -1,16 +1,18 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { AuthRequest } from '../types';
 
 const SECRET_KEY = process.env.JWT_SECRET || 'secret';
 
-/* Extend Express Request to include user info */
-export interface AuthRequest extends Request {
-    user?: {
-        userId: number;
-        role: string;
-    };
-}
-
+/**
+ * Middleware autentikasi JWT.
+ * Membaca token dari header `Authorization: Bearer <token>`,
+ * memverifikasi, lalu menyisipkan data user ke `req.user`.
+ *
+ * @param  req  - AuthRequest dengan header Authorization
+ * @param  res  - 401 jika token tidak ada/expired | 403 jika token tidak valid
+ * @param  next - Lanjut ke handler berikutnya jika token valid
+ */
 export const authenticateJWT = (req: AuthRequest, res: Response, next: NextFunction) => {
     const token = req.header('Authorization')?.split(' ')[1];
 
@@ -33,6 +35,16 @@ export const authenticateJWT = (req: AuthRequest, res: Response, next: NextFunct
     }
 };
 
+/**
+ * Middleware otorisasi berbasis role.
+ * Memastikan user yang sudah login memiliki role yang diizinkan.
+ *
+ * @param  roles - Array role yang diperbolehkan, contoh: ['ADMIN', 'PETUGAS']
+ * @returns Middleware function yang mengembalikan 401/403 jika role tidak sesuai
+ *
+ * @example
+ * router.get('/admin-only', authenticateJWT, authorizeRole(['ADMIN']), handler);
+ */
 export const authorizeRole = (roles: string[]) => {
     return (req: AuthRequest, res: Response, next: NextFunction) => {
         if (!req.user) {

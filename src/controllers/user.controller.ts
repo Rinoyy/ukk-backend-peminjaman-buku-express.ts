@@ -1,6 +1,15 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma';
 
+/**
+ * Mengambil daftar semua pengguna (tanpa password dan QR Code).
+ * Menampilkan id, username, role, dan tanggal dibuat.
+ *
+ * @route  GET /api/users
+ * @access Admin
+ * @param  req - Tidak ada parameter tambahan
+ * @param  res - 200 array user | 500 server error
+ */
 export const getUsers = async (req: Request, res: Response) => {
     try {
         const users = await prisma.user.findMany({ select: { id: true, username: true, role: true, createdAt: true } });
@@ -10,6 +19,14 @@ export const getUsers = async (req: Request, res: Response) => {
     }
 };
 
+/**
+ * Mengambil detail satu user berdasarkan ID, termasuk QR Code siswa.
+ *
+ * @route  GET /api/users/:id
+ * @access Admin
+ * @param  req - Params: { id }
+ * @param  res - 200 data user | 404 tidak ditemukan | 500 server error
+ */
 export const getUserById = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
@@ -24,7 +41,15 @@ export const getUserById = async (req: Request, res: Response) => {
     }
 };
 
-// Admin can delete users
+/**
+ * Menghapus user dari database. Hanya bisa dilakukan oleh Admin.
+ * Data peminjaman yang terhubung akan ikut terpengaruh (relasi).
+ *
+ * @route  DELETE /api/users/:id
+ * @access Admin
+ * @param  req - Params: { id }
+ * @param  res - 200 pesan sukses | 500 server error
+ */
 export const deleteUser = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
