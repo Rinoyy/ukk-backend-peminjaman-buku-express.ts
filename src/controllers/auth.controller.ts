@@ -49,7 +49,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         // username = nisn agar kolom non-null tetap terpenuhi
         const user = await prisma.user.create({
             data: {
-                username: nisn,
+                username: validNISN.name,
                 nisn,
                 password: hashedPassword,
                 role: 'SISWA',
