@@ -1,12 +1,11 @@
--- Add nisn column to User table
+-- 006: Tambah NISN ke User dan buat tabel StudentNISN (whitelist NISN)
 ALTER TABLE `User` ADD COLUMN `nisn` VARCHAR(191) NULL;
 ALTER TABLE `User` ADD UNIQUE INDEX `User_nisn_key`(`nisn`);
 
--- Create StudentNISN table
 CREATE TABLE `StudentNISN` (
-    `id` INTEGER NOT NULL AUTO_INCREMENT,
-    `nisn` VARCHAR(191) NOT NULL,
-    `name` VARCHAR(191) NOT NULL,
+    `id`        INTEGER NOT NULL AUTO_INCREMENT,
+    `nisn`      VARCHAR(191) NOT NULL,
+    `name`      VARCHAR(191) NOT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     UNIQUE INDEX `StudentNISN_nisn_key`(`nisn`),

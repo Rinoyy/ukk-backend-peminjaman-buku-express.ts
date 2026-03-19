@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma';
+import bcrypt from 'bcryptjs';
 
 /**
  * Mengambil daftar semua pengguna (tanpa password dan QR Code).
@@ -57,5 +58,28 @@ export const deleteUser = async (req: Request, res: Response) => {
         res.json({ message: "User deleted successfully" });
     } catch (error) {
         res.status(500).json({ message: "Error deleting user", error });
+    }
+};
+
+export const createStaff = async (req: Request, res: Response) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+        res.status(400).json({ message: 'Username dan password wajib diisi.' });
+        return;
+    }
+    try {
+        const existing = await prisma.user.findUnique({ where: { username } });
+        if (existing) {
+            res.status(400).json({ message: 'Username sudah digunakan.' });
+            return;
+        }
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const user = await prisma.user.create({
+            data: { username, password: hashedPassword, role: 'PETUGAS' },
+            select: { id: true, username: true, role: true, createdAt: true },
+        });
+        res.status(201).json({ message: 'Akun petugas berhasil dibuat', user });
+    } catch (error) {
+        res.status(500).json({ message: 'Error creating staff', error });
     }
 };

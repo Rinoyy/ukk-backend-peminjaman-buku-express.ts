@@ -12,7 +12,7 @@ model User {
   username  String   @unique
   nisn      String?  @unique // Hanya untuk SISWA
   password  String
-  role      String   // "ADMIN", "SISWA"
+  role      String   // "ADMIN", "PETUGAS", "SISWA"
   qrCode    String?  @db.Text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -14,12 +14,13 @@
 
 ### 1. Manajemen Pengguna (User Management)
 
-**Entitas:** User (Siswa, Admin), StudentNISN
+**Entitas:** User (Siswa, Admin, Petugas), StudentNISN
 
 **Proses bisnis:**
 - Siswa mendaftar mandiri — **wajib memasukkan NISN** yang terdaftar di sistem sekolah
 - Jika NISN tidak ada di tabel `StudentNISN`, pendaftaran ditolak
 - Admin login menggunakan kredensial yang disiapkan sebelumnya
+- Petugas dibuat oleh Admin melalui dashboard — tidak bisa mendaftar mandiri
 - Setiap pengguna mendapat JWT token untuk autentikasi sesi
 
 **Aturan:**
@@ -27,6 +28,7 @@
 - QR Code dihasilkan dari data unik pengguna (ID/username) menggunakan library `qrcode`
 - Token JWT memiliki masa berlaku dan menyimpan `userId` + `role`
 - Satu NISN hanya bisa digunakan untuk satu akun
+- Role yang tersedia: `ADMIN`, `PETUGAS`, `SISWA`
 
 ---
 
@@ -69,15 +71,15 @@ Buat record Borrowing (status: PENDING)
 Update BookCopy → RESERVED
 ```
 
-#### Fase 2: Persetujuan Admin
+#### Fase 2: Persetujuan Admin/Petugas
 ```
-Admin approve:
+Admin/Petugas approve:
   - Borrowing → BORROWED
   - DueDate = borrowDate + 7 hari
   - PickupDeadline = now + 2 hari
   - Kirim notifikasi BORROW_APPROVED ke siswa
 
-Admin reject:
+Admin/Petugas reject:
   - Borrowing → REJECTED
   - BookCopy → AVAILABLE kembali
   - Kirim notifikasi BORROW_REJECTED ke siswa
@@ -90,9 +92,9 @@ Siswa klik "Kembalikan":
   (Admin menunggu siswa datang secara fisik)
 ```
 
-#### Fase 4: Verifikasi Pengembalian oleh Admin
+#### Fase 4: Verifikasi Pengembalian oleh Admin/Petugas
 ```
-Admin input kondisi fisik buku:
+Admin/Petugas input kondisi fisik buku:
 
 [GOOD + tepat waktu]
   → Borrowing: RETURNED, actualReturnDate = now
@@ -120,9 +122,9 @@ Admin input kondisi fisik buku:
 
 #### Fase 5: Pembayaran Denda
 ```
-Siswa bayar denda tunai ke admin
+Siswa bayar denda tunai ke admin/petugas
         ↓
-Admin input jumlah bayar
+Admin/Petugas input jumlah bayar
         ↓
 Sistem hitung kembalian = bayar - totalFine
         ↓
@@ -218,15 +220,21 @@ Untuk setiap record:
 
 ## Pemisahan Akses Berdasarkan Role
 
-| Endpoint | SISWA | ADMIN |
-|---|---|---|
-| Register (butuh NISN) | ✓ | - |
-| Login | ✓ | ✓ |
-| Lihat buku | ✓ | ✓ |
-| Ajukan pinjam | ✓ | - |
-| Approve/Reject pinjam | - | ✓ |
-| Verifikasi pengembalian | - | ✓ |
-| Proses pembayaran | - | ✓ |
-| CRUD buku & kategori | - | ✓ |
-| Kelola NISN siswa | - | ✓ |
-| Lihat data kunjungan | - | ✓ |
+| Endpoint | SISWA | PETUGAS | ADMIN |
+|---|---|---|---|
+| Register (butuh NISN) | ✓ | - | - |
+| Login | ✓ | ✓ | ✓ |
+| Lihat buku | ✓ | ✓ | ✓ |
+| Ajukan pinjam | ✓ | - | - |
+| Lihat riwayat peminjaman | milik sendiri | semua | semua |
+| Approve/Reject pinjam | - | ✓ | ✓ |
+| Tandai buku diambil | - | ✓ | ✓ |
+| Verifikasi pengembalian | - | ✓ | ✓ |
+| Proses pembayaran denda | - | ✓ | ✓ |
+| Rekap denda | - | ✓ | ✓ |
+| Scan check-in/checkout kunjungan | - | ✓ | ✓ |
+| Lihat data kunjungan | - | ✓ | ✓ |
+| CRUD buku & kategori | - | - | ✓ |
+| Kelola NISN siswa | - | - | ✓ |
+| Buat akun Petugas | - | - | ✓ |
+| Export data CSV | - | - | ✓ |
