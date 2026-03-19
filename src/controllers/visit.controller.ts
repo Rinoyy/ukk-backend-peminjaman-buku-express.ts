@@ -82,6 +82,60 @@ export const getVisits = async (req: Request, res: Response) => {
 };
 
 /**
+ * Mencatat waktu keluar siswa dari perpustakaan (checkout via scan QR).
+ * Mencari kunjungan aktif hari ini (belum ada checkoutDate) dan mengisinya.
+ *
+ * @route  POST /api/visits/checkout
+ * @access Authenticated (Admin scan QR siswa)
+ * @param  req - Body: { userId? } — jika kosong, diambil dari token
+ * @param  res - 200 data kunjungan | 400 tidak ada sesi aktif | 500 server error
+ */
+export const checkOut = async (req: AuthRequest, res: Response) => {
+    const { userId } = req.body;
+    const targetUserId = userId || req.user?.userId;
+
+    if (!targetUserId) {
+        res.status(400).json({ message: 'User ID required' });
+        return;
+    }
+
+    try {
+        const user = await prisma.user.findUnique({ where: { id: Number(targetUserId) } });
+        if (!user || user.role !== 'SISWA') {
+            res.status(400).json({ message: 'Invalid user or not a Siswa' });
+            return;
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const activeVisit = await prisma.visit.findFirst({
+            where: {
+                userId: Number(targetUserId),
+                checkoutDate: null,
+                visitDate: { gte: today },
+            },
+            orderBy: { visitDate: 'desc' },
+        });
+
+        if (!activeVisit) {
+            res.status(404).json({ message: 'Tidak ada sesi check-in aktif hari ini untuk siswa ini' });
+            return;
+        }
+
+        const updated = await prisma.visit.update({
+            where: { id: activeVisit.id },
+            data: { checkoutDate: new Date() },
+            include: { user: { select: { id: true, username: true, role: true } } },
+        });
+
+        res.json({ message: 'Check-out berhasil', visit: updated });
+    } catch (error) {
+        res.status(500).json({ message: 'Error checking out', error });
+    }
+};
+
+/**
  * Mengambil jumlah kunjungan hari ini.
  * Digunakan di halaman dashboard untuk menampilkan statistik harian.
  *
