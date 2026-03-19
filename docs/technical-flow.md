@@ -9,14 +9,39 @@
 | Node.js | ~20.x | Runtime |
 | Express | 5.x | Web framework |
 | TypeScript | ~5.x | Type safety |
-| Prisma | ~5.x | ORM untuk database |
+| Prisma | ~6.x | ORM untuk database |
 | MySQL | 8.x | Database relasional |
 | jsonwebtoken | ~9.x | JWT generation & verification |
-| bcryptjs | ~2.x | Password hashing |
+| bcryptjs | ~3.x | Password hashing |
 | qrcode | ~1.x | Generate QR code (base64) |
-| multer | ~1.x | File upload (gambar buku) |
-| node-cron | ~3.x | Scheduled jobs |
+| multer | ~2.x | File upload (gambar buku) |
+| node-cron | ~4.x | Scheduled jobs |
 | cors | ~2.x | Cross-origin resource sharing |
+
+---
+
+## Status & Enum Sistem
+
+### BorrowStatus
+
+| Nilai | Keterangan |
+|---|---|
+| `PENDING` | Menunggu persetujuan (auto-cancel 24 jam) |
+| `BORROWED` | Disetujui dan sedang dipinjam |
+| `RETURN_PENDING` | Siswa ajukan pengembalian |
+| `RETURNED` | Pengembalian diverifikasi |
+| `REJECTED` | Ditolak admin/petugas |
+| `CANCELLED` | Dibatalkan |
+
+### CopyStatus (BookCopy)
+
+| Nilai | Keterangan |
+|---|---|
+| `AVAILABLE` | Tersedia untuk dipinjam |
+| `RESERVED` | Diblok sementara (ada PENDING) |
+| `BORROWED` | Sedang dipinjam |
+| `DAMAGED` | Dikembalikan rusak |
+| `LOST` | Dinyatakan hilang |
 
 ---
 
@@ -25,10 +50,10 @@
 ```
 express-qr-backend/
 ├── src/
-│   ├── server.ts               # Entry point: start HTTP server
+│   ├── server.ts               # Entry point: start HTTP server di PORT
 │   ├── app.ts                  # Express setup: middleware + routes mounting
 │   ├── prisma.ts               # Singleton Prisma client instance
-│   ├── cron.ts                 # Cron job: auto-cancel pending borrowings
+│   ├── cron.ts                 # Cron job: auto-cancel pending borrowings > 24 jam
 │   │
 │   ├── routes/                 # Route definitions (URL mapping)
 │   │   ├── auth.routes.ts      # /api/auth
@@ -38,30 +63,36 @@ express-qr-backend/
 │   │   ├── visit.routes.ts     # /api/visits
 │   │   ├── notification.routes.ts  # /api/notifications
 │   │   ├── category.routes.ts  # /api/categories
-│   │   ├── bookCopy.routes.ts  # /api/copies
+│   │   ├── bookCopy.routes.ts  # /api/book-copies
 │   │   ├── qr.ts               # /api/qr
 │   │   └── export.routes.ts    # /api/export
 │   │
 │   ├── controllers/            # Business logic per domain
-│   │   ├── auth.controller.ts
-│   │   ├── book.controller.ts
-│   │   ├── borrow.controller.ts    # Controller terkompleks
-│   │   ├── user.controller.ts
-│   │   ├── visit.controller.ts
-│   │   ├── notification.controller.ts
-│   │   ├── category.controller.ts
-│   │   ├── bookCopy.controller.ts
-│   │   └── export.controller.ts
+│   │   ├── auth.controller.ts          # register, login
+│   │   ├── book.controller.ts          # CRUD buku + upload gambar
+│   │   ├── borrow.controller.ts        # Controller terkompleks (~685 baris)
+│   │   ├── user.controller.ts          # CRUD user + create petugas
+│   │   ├── visit.controller.ts         # check-in, checkout, daftar kunjungan
+│   │   ├── notification.controller.ts  # ambil + mark-read notifikasi
+│   │   ├── category.controller.ts      # CRUD kategori
+│   │   ├── bookCopy.controller.ts      # kelola eksemplar buku
+│   │   └── export.controller.ts        # export CSV
 │   │
 │   ├── middlewares/
 │   │   └── auth.middleware.ts  # JWT verification + role checking
 │   │
-│   └── utils/
-│       └── qr.ts               # QR code generation helper
+│   ├── utils/
+│   │   ├── qr.ts               # QR code generation helper
+│   │   └── helpers.ts          # calculateLateFee, calculateDueDate, dll
+│   │
+│   └── __tests__/
+│       ├── helpers.test.ts     # Unit test fungsi kalkulasi (11 test)
+│       └── auth.test.ts        # Unit test register & login (7 test)
 │
 ├── prisma/
 │   ├── schema.prisma           # Database schema (models + relations)
-│   └── migrations/             # Auto-generated migration files
+│   ├── seed.ts                 # Data awal: admin, NISN, kategori, buku
+│   └── migrations/             # Auto-generated migration SQL files
 │
 ├── uploads/                    # Folder upload gambar buku (Multer)
 ├── package.json
@@ -73,27 +104,28 @@ express-qr-backend/
 
 ## Alur Teknis: Request Lifecycle
 
-Setiap HTTP request melewati lapisan berikut secara berurutan:
+Setiap HTTP request melewati lapisan berikut:
 
 ```
 HTTP Request
-     ↓
+     │
 [1] Express App (app.ts)
-     ↓ cors(), json(), urlencoded()
+     │  cors(), json(), urlencoded()
 [2] Router (routes/*.ts)
-     ↓ URL matching
-[3] Auth Middleware (opsional)
-     ↓ verifyToken(), requireRole()
+     │  URL matching + method matching
+[3] Auth Middleware (opsional, sesuai route)
+     │  verifyToken() → decode JWT → req.user
+     │  requireRole('ADMIN', ...) → cek role
 [4] Controller (controllers/*.ts)
-     ↓ Business logic
-[5] Prisma ORM
-     ↓ SQL query
+     │  Business logic + validasi input
+[5] Prisma ORM (prisma.ts)
+     │  SQL query ke MySQL
 [6] MySQL Database
-     ↓
-[5] Prisma response
-     ↓
+     │
+[5] Prisma response → JavaScript object
+     │
 [4] Controller → res.json(data)
-     ↓
+     │
 HTTP Response
 ```
 
@@ -101,29 +133,37 @@ HTTP Response
 
 ## Alur Teknis: Autentikasi & Otorisasi
 
-### Registrasi
+### Registrasi Siswa
 
 ```typescript
-// auth.controller.ts - register()
+// auth.controller.ts — register()
 async function register(req, res) {
-  const { name, nis, email, password } = req.body
+  const { nisn, username, password } = req.body
 
-  // 1. Hash password
+  // 1. Validasi input wajib
+  if (!nisn || !password) return res.status(400).json({ message: 'nisn dan password wajib diisi' })
+
+  // 2. Cek NISN di whitelist sekolah
+  const studentNISN = await prisma.studentNISN.findUnique({ where: { nisn } })
+  if (!studentNISN) return res.status(403).json({ message: 'NISN tidak terdaftar di sekolah' })
+
+  // 3. Cek NISN belum dipakai
+  const existing = await prisma.user.findUnique({ where: { nisn } })
+  if (existing) return res.status(400).json({ message: 'NISN sudah digunakan' })
+
+  // 4. Hash password
   const hashedPassword = await bcrypt.hash(password, 10)
 
-  // 2. Buat user di database
+  // 5. Buat user di database
   const user = await prisma.user.create({
-    data: { name, nis, email, password: hashedPassword, role: 'SISWA' }
+    data: { username, nisn, password: hashedPassword, role: 'SISWA' }
   })
 
-  // 3. Generate QR Code dari userId
-  const qrCode = await QRCode.toDataURL(user.id)
+  // 6. Generate QR Code dari userId
+  const qrCode = await QRCode.toDataURL(String(user.id))
   await prisma.user.update({ where: { id: user.id }, data: { qrCode } })
 
-  // 4. Generate JWT token
-  const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET)
-
-  res.json({ token, user })
+  res.status(201).json({ message: 'User registered successfully', user })
 }
 ```
 
@@ -131,13 +171,18 @@ async function register(req, res) {
 
 ```typescript
 // middlewares/auth.middleware.ts
+
 export const verifyToken = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1]
   if (!token) return res.status(401).json({ message: 'Unauthorized' })
 
-  const decoded = jwt.verify(token, JWT_SECRET)
-  req.user = decoded  // { userId, role }
-  next()
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET)
+    req.user = decoded  // { userId, role }
+    next()
+  } catch {
+    res.status(401).json({ message: 'Token tidak valid atau kadaluarsa' })
+  }
 }
 
 export const requireRole = (...roles: string[]) => (req, res, next) => {
@@ -152,45 +197,63 @@ export const requireRole = (...roles: string[]) => (req, res, next) => {
 
 ```typescript
 // routes/borrow.routes.ts
-router.post('/', verifyToken, requireRole('SISWA'), borrowController.create)
-router.patch('/:id/approve', verifyToken, requireRole('ADMIN'), borrowController.approve)
-router.patch('/:id/return', verifyToken, requireRole('SISWA'), borrowController.requestReturn)
-router.patch('/:id/verify-return', verifyToken, requireRole('ADMIN'), borrowController.verifyReturn)
+router.get('/',                   verifyToken,                              borrowController.getBorrowings)
+router.post('/',                  verifyToken, requireRole('SISWA'),        borrowController.borrowBook)
+router.patch('/:id/cancel',       verifyToken, requireRole('SISWA'),        borrowController.cancelBorrow)
+router.patch('/:id/approve',      verifyToken, requireRole('ADMIN','PETUGAS'), borrowController.handleBorrowRequest)
+router.patch('/:id/pickup',       verifyToken, requireRole('ADMIN','PETUGAS'), borrowController.markPickedUp)
+router.patch('/:id/return',       verifyToken, requireRole('SISWA'),        borrowController.returnBookRequest)
+router.patch('/:id/verify-return',verifyToken, requireRole('ADMIN','PETUGAS'), borrowController.handleReturnRequest)
+router.post('/:id/pay-fine',      verifyToken, requireRole('ADMIN','PETUGAS'), borrowController.payFine)
 ```
 
 ---
 
 ## Alur Teknis: Borrow Controller (Terkompleks)
 
-### create() — Siswa ajukan peminjaman
+### borrowBook() — Siswa ajukan peminjaman
 
 ```typescript
-async function create(req, res) {
+// borrow.controller.ts — borrowBook()
+const LATE_FEE_PER_DAY = 1000   // Rp 1.000/hari
+const LOAN_DURATION_DAYS = 7    // 7 hari
+
+async function borrowBook(req, res) {
   const { bookId } = req.body
   const userId = req.user.userId
 
   // 1. Cek eligibilitas: tidak ada borrowing aktif
   const activeBorrow = await prisma.borrowing.findFirst({
-    where: { userId, status: { in: ['PENDING', 'BORROWED', 'RETURN_PENDING'] } }
+    where: {
+      userId,
+      status: { in: ['PENDING', 'BORROWED', 'RETURN_PENDING'] }
+    }
   })
-  if (activeBorrow) throw new Error('Masih ada peminjaman aktif')
+  if (activeBorrow) {
+    return res.status(400).json({ message: 'Masih ada peminjaman aktif' })
+  }
 
-  // 2. Cek eligibilitas: tidak ada fine belum bayar
+  // 2. Cek eligibilitas: tidak ada denda belum dibayar
   const unpaidFine = await prisma.borrowing.findFirst({
-    where: { userId, isPaid: false, totalFine: { gt: 0 } }
+    where: { userId, totalFine: { gt: 0 }, isPaid: false }
   })
-  if (unpaidFine) throw new Error('Masih ada denda belum dibayar')
+  if (unpaidFine) {
+    return res.status(400).json({ message: 'Masih ada denda yang belum dilunasi' })
+  }
 
-  // 3. Cari salinan buku yang tersedia
+  // 3. Cari salinan buku yang tersedia (FIFO: copyNumber terkecil)
   const availableCopy = await prisma.bookCopy.findFirst({
-    where: { bookId, status: 'AVAILABLE' }
+    where: { bookId, status: 'AVAILABLE' },
+    orderBy: { copyNumber: 'asc' }
   })
-  if (!availableCopy) throw new Error('Tidak ada salinan buku tersedia')
+  if (!availableCopy) {
+    return res.status(400).json({ message: 'Tidak ada salinan buku yang tersedia' })
+  }
 
-  // 4. Buat peminjaman + update status copy (transaction)
+  // 4. Buat peminjaman + reservasi copy dalam satu transaction (atomic)
   const [borrowing] = await prisma.$transaction([
     prisma.borrowing.create({
-      data: { userId, bookCopyId: availableCopy.id, status: 'PENDING', borrowDate: new Date() }
+      data: { userId, bookCopyId: availableCopy.id, status: 'PENDING' }
     }),
     prisma.bookCopy.update({
       where: { id: availableCopy.id },
@@ -198,35 +261,103 @@ async function create(req, res) {
     })
   ])
 
-  res.json(borrowing)
+  res.status(201).json(borrowing)
 }
 ```
 
-### verifyReturn() — Admin verifikasi pengembalian
+**Poin penting:**
+- Sistem **otomatis memilih** copy yang AVAILABLE — siswa hanya mengirim `bookId`
+- Copy langsung di-`RESERVED` atomically bersamaan dengan pembuatan Borrowing
+- Mencegah race condition (dua siswa meminjam copy yang sama)
+
+---
+
+### handleBorrowRequest() — Admin approve/reject
 
 ```typescript
-async function verifyReturn(req, res) {
+async function handleBorrowRequest(req, res) {
   const { id } = req.params
-  const { condition, damageFee = 0 } = req.body
+  const { status, rejectReason } = req.body   // 'BORROWED' atau 'REJECTED'
 
-  const borrowing = await prisma.borrowing.findUnique({ where: { id } })
+  if (status === 'BORROWED') {
+    // APPROVE
+    const dueDate = new Date()
+    dueDate.setDate(dueDate.getDate() + LOAN_DURATION_DAYS)  // +7 hari
+
+    await prisma.$transaction([
+      prisma.borrowing.update({
+        where: { id: Number(id) },
+        data: { status: 'BORROWED', borrowDate: new Date(), dueDate }
+      }),
+      prisma.bookCopy.update({
+        where: { id: borrowing.bookCopyId },
+        data: { status: 'BORROWED' }
+      }),
+      prisma.notification.create({
+        data: {
+          userId: borrowing.userId,
+          title: 'Peminjaman Disetujui',
+          message: `Ambil buku dalam 2 hari.`,
+          type: 'BORROW_APPROVED'
+        }
+      })
+    ])
+  } else if (status === 'REJECTED') {
+    // REJECT — copy dikembalikan ke AVAILABLE
+    await prisma.$transaction([
+      prisma.borrowing.update({
+        where: { id: Number(id) },
+        data: { status: 'REJECTED', rejectReason }
+      }),
+      prisma.bookCopy.update({
+        where: { id: borrowing.bookCopyId },
+        data: { status: 'AVAILABLE' }
+      }),
+      prisma.notification.create({
+        data: {
+          userId: borrowing.userId,
+          title: 'Peminjaman Ditolak',
+          message: rejectReason || 'Peminjaman ditolak',
+          type: 'BORROW_REJECTED'
+        }
+      })
+    ])
+  }
+
+  res.json({ message: 'Status peminjaman diperbarui' })
+}
+```
+
+---
+
+### handleReturnRequest() — Admin verifikasi pengembalian
+
+```typescript
+async function handleReturnRequest(req, res) {
+  const { id } = req.params
+  const { condition, damageFee = 0 } = req.body  // condition: 'GOOD'|'DAMAGED'|'LOST'
+
+  const borrowing = await prisma.borrowing.findUnique({
+    where: { id: Number(id) }
+  })
+
   const actualReturn = new Date()
 
   // Hitung keterlambatan
-  const daysLate = Math.max(0,
-    Math.floor((actualReturn - borrowing.dueDate) / (1000 * 60 * 60 * 24))
+  const daysLate = Math.ceil(
+    (actualReturn.getTime() - borrowing.dueDate.getTime()) / (1000 * 60 * 60 * 24)
   )
-  const lateFee = daysLate * 1000  // Rp 1.000/hari
+  const lateFee = Math.max(0, daysLate) * LATE_FEE_PER_DAY
   const totalFine = lateFee + Number(damageFee)
 
-  // Update borrowing + book copy status
-  const newCopyStatus = condition === 'GOOD' ? 'AVAILABLE'
+  // Tentukan status copy berdasarkan kondisi buku
+  const newCopyStatus = condition === 'GOOD'    ? 'AVAILABLE'
                       : condition === 'DAMAGED' ? 'DAMAGED'
                       : 'LOST'
 
   await prisma.$transaction([
     prisma.borrowing.update({
-      where: { id },
+      where: { id: Number(id) },
       data: {
         status: 'RETURNED',
         actualReturnDate: actualReturn,
@@ -234,7 +365,7 @@ async function verifyReturn(req, res) {
         lateFee,
         damageFee: Number(damageFee),
         totalFine,
-        isPaid: totalFine === 0
+        isPaid: totalFine === 0   // otomatis lunas jika tidak ada denda
       }
     }),
     prisma.bookCopy.update({
@@ -243,7 +374,82 @@ async function verifyReturn(req, res) {
     })
   ])
 
-  res.json({ message: 'Pengembalian terverifikasi', totalFine })
+  res.json({ message: 'Pengembalian terverifikasi', lateFee, damageFee, totalFine })
+}
+```
+
+---
+
+### payFine() — Proses pembayaran denda
+
+```typescript
+async function payFine(req, res) {
+  const { id } = req.params
+  const { amountPaid } = req.body
+
+  const borrowing = await prisma.borrowing.findUnique({ where: { id: Number(id) } })
+
+  if (Number(amountPaid) < borrowing.totalFine) {
+    return res.status(400).json({ message: 'Jumlah bayar kurang dari total denda' })
+  }
+
+  const change = Number(amountPaid) - borrowing.totalFine
+
+  await prisma.$transaction([
+    prisma.payment.create({
+      data: {
+        borrowingId: Number(id),
+        amount: borrowing.totalFine,
+        amountPaid: Number(amountPaid),
+        change,
+        paidById: req.user.userId
+      }
+    }),
+    prisma.borrowing.update({
+      where: { id: Number(id) },
+      data: { isPaid: true }
+    })
+  ])
+
+  res.json({ message: 'Pembayaran berhasil', totalFine: borrowing.totalFine, amountPaid, change })
+}
+```
+
+---
+
+## Alur Teknis: Helper Functions
+
+```typescript
+// src/utils/helpers.ts
+
+const LATE_FEE_PER_DAY = 1000
+const LOAN_DURATION_DAYS = 7
+const PICKUP_DEADLINE_DAYS = 2
+
+// Hitung denda keterlambatan
+export function calculateLateFee(dueDate: Date, returnDate: Date): number {
+  const daysLate = Math.ceil((returnDate.getTime() - dueDate.getTime()) / 86_400_000)
+  return Math.max(0, daysLate) * LATE_FEE_PER_DAY
+}
+
+// Hitung tanggal jatuh tempo dari tanggal disetujui
+export function calculateDueDate(borrowDate: Date): Date {
+  const due = new Date(borrowDate)
+  due.setDate(due.getDate() + LOAN_DURATION_DAYS)
+  return due
+}
+
+// Hitung batas pengambilan buku
+export function calculatePickupDeadline(approvalDate: Date): Date {
+  const deadline = new Date(approvalDate)
+  deadline.setDate(deadline.getDate() + PICKUP_DEADLINE_DAYS)
+  return deadline
+}
+
+// Cek apakah PENDING sudah expired (> 24 jam)
+export function isExpiredPending(createdAt: Date): boolean {
+  const age = Date.now() - createdAt.getTime()
+  return age > 24 * 60 * 60 * 1000   // lebih dari 24 jam
 }
 ```
 
@@ -252,18 +458,20 @@ async function verifyReturn(req, res) {
 ## Alur Teknis: Cron Job
 
 ```typescript
-// cron.ts
+// cron.ts — Berjalan setiap jam: '0 * * * *'
 import cron from 'node-cron'
+import prisma from './prisma'
 
-// Jalankan setiap jam
 cron.schedule('0 * * * *', async () => {
-  const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000)  // 24 jam lalu
+  const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000)
 
-  // Cari semua PENDING yang sudah > 24 jam
+  // Cari semua PENDING yang sudah lebih dari 24 jam
   const expiredBorrowings = await prisma.borrowing.findMany({
-    where: { status: 'PENDING', borrowDate: { lt: cutoffTime } },
+    where: { status: 'PENDING', createdAt: { lt: cutoffTime } },
     include: { bookCopy: true }
   })
+
+  console.log(`[CRON] Found ${expiredBorrowings.length} expired borrowings`)
 
   for (const borrowing of expiredBorrowings) {
     await prisma.$transaction([
@@ -282,97 +490,142 @@ cron.schedule('0 * * * *', async () => {
 
 ---
 
-## Database Schema (Prisma)
+## Database Schema (Prisma — Aktual)
 
 ```prisma
 // prisma/schema.prisma
 
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
 model User {
-  id            String        @id @default(cuid())
-  name          String
-  nis           String?       @unique
-  email         String        @unique
-  password      String
-  role          Role          @default(SISWA)
-  qrCode        String?
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  nisn      String?  @unique
+  password  String
+  role      Role     @default(SISWA)
+  qrCode    String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   borrowings    Borrowing[]
   visits        Visit[]
   notifications Notification[]
-  payments      Payment[]
+  payments      Payment[]      @relation("ProcessedBy")
+}
+
+model StudentNISN {
+  id        Int      @id @default(autoincrement())
+  nisn      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+}
+
+model Category {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  books       Book[]
 }
 
 model Book {
-  id          String     @id @default(cuid())
+  id          Int       @id @default(autoincrement())
   title       String
   author      String
-  description String?
+  categoryId  Int?
+  description String?   @db.Text
   image       String?
-  categoryId  String
-  category    Category   @relation(fields: [categoryId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  category    Category? @relation(fields: [categoryId], references: [id])
   copies      BookCopy[]
 }
 
 model BookCopy {
-  id         String      @id @default(cuid())
-  bookId     String
-  book       Book        @relation(fields: [bookId], references: [id])
-  status     CopyStatus  @default(AVAILABLE)
-  qrCode     String?
-  borrowings Borrowing[]
+  id          Int        @id @default(autoincrement())
+  bookId      Int
+  copyNumber  Int
+  qrCode      String?    @db.Text
+  status      CopyStatus @default(AVAILABLE)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  book        Book       @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  borrowings  Borrowing[]
+
+  @@unique([bookId, copyNumber])
 }
 
 model Borrowing {
-  id               String          @id @default(cuid())
-  userId           String
-  bookCopyId       String
-  status           BorrowStatus    @default(PENDING)
-  borrowDate       DateTime
+  id               Int          @id @default(autoincrement())
+  userId           Int
+  bookCopyId       Int
+  status           BorrowStatus @default(PENDING)
+  borrowDate       DateTime?
   dueDate          DateTime?
   actualReturnDate DateTime?
-  condition        ReturnCondition?
-  lateFee          Float           @default(0)
-  damageFee        Float           @default(0)
-  totalFine        Float           @default(0)
-  isPaid           Boolean         @default(false)
-  user             User            @relation(fields: [userId], references: [id])
-  bookCopy         BookCopy        @relation(fields: [bookCopyId], references: [id])
-  payment          Payment?
+  condition        String?
+  rejectReason     String?
+  lateFee          Int          @default(0)
+  damageFee        Int          @default(0)
+  totalFine        Int          @default(0)
+  isPickedUp       Boolean      @default(false)
+  isPaid           Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id])
+  bookCopy  BookCopy  @relation(fields: [bookCopyId], references: [id])
+  payment   Payment?
 }
 
 model Payment {
-  id          String    @id @default(cuid())
-  borrowingId String    @unique
-  userId      String
-  amount      Float
-  change      Float
-  processedBy String
-  createdAt   DateTime  @default(now())
+  id          Int      @id @default(autoincrement())
+  borrowingId Int      @unique
+  amount      Int
+  amountPaid  Int
+  change      Int
+  paidAt      DateTime @default(now())
+  paidById    Int
+
   borrowing   Borrowing @relation(fields: [borrowingId], references: [id])
-  user        User      @relation(fields: [userId], references: [id])
+  paidBy      User      @relation("ProcessedBy", fields: [paidById], references: [id])
 }
 
 model Visit {
-  id        String   @id @default(cuid())
-  userId    String
-  visitedAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
+  id           Int       @id @default(autoincrement())
+  userId       Int
+  visitDate    DateTime  @default(now())
+  checkoutDate DateTime?
+  createdAt    DateTime  @default(now())
+
+  user         User      @relation(fields: [userId], references: [id])
 }
 
 model Notification {
-  id        String           @id @default(cuid())
-  userId    String
+  id        Int              @id @default(autoincrement())
+  userId    Int
   title     String
-  message   String
+  message   String           @db.Text
   type      NotificationType
   isRead    Boolean          @default(false)
   createdAt DateTime         @default(now())
+
   user      User             @relation(fields: [userId], references: [id])
 }
 
-enum Role          { ADMIN SISWA PETUGAS }
-enum CopyStatus    { AVAILABLE RESERVED BORROWED DAMAGED LOST }
-enum BorrowStatus  { PENDING BORROWED RETURN_PENDING RETURNED REJECTED CANCELLED }
-enum ReturnCondition { GOOD DAMAGED LOST }
+enum Role            { ADMIN PETUGAS SISWA }
+enum CopyStatus      { AVAILABLE RESERVED BORROWED DAMAGED LOST }
+enum BorrowStatus    { PENDING BORROWED RETURN_PENDING RETURNED REJECTED CANCELLED }
 enum NotificationType { BORROW_APPROVED BORROW_REJECTED PICKUP_REMINDER GENERAL }
 ```
 
@@ -383,15 +636,13 @@ enum NotificationType { BORROW_APPROVED BORROW_REJECTED PICKUP_REMINDER GENERAL 
 Operasi yang mengubah lebih dari 1 tabel dilakukan dalam satu **transaction** untuk menjaga konsistensi data:
 
 ```typescript
-// Contoh: approve peminjaman
+// Jika salah satu operasi gagal, seluruh transaction di-rollback otomatis
 await prisma.$transaction([
   prisma.borrowing.update({ where: { id }, data: { status: 'BORROWED', dueDate } }),
   prisma.bookCopy.update({ where: { id: copyId }, data: { status: 'BORROWED' } }),
   prisma.notification.create({ data: { userId, type: 'BORROW_APPROVED', ... } })
 ])
 ```
-
-Jika salah satu operasi gagal, seluruh transaction di-rollback otomatis.
 
 ---
 
@@ -400,44 +651,59 @@ Jika salah satu operasi gagal, seluruh transaction di-rollback otomatis.
 ### Auth
 | Method | Endpoint | Auth | Role | Deskripsi |
 |---|---|---|---|---|
-| POST | `/api/auth/register` | ❌ | - | Daftar siswa |
-| POST | `/api/auth/login` | ❌ | - | Login |
+| POST | `/api/auth/register` | ❌ | — | Daftar siswa |
+| POST | `/api/auth/login` | ❌ | — | Login semua role |
 
 ### Books
 | Method | Endpoint | Auth | Role | Deskripsi |
 |---|---|---|---|---|
-| GET | `/api/books` | ✓ | All | Daftar buku |
-| GET | `/api/books/:id` | ✓ | All | Detail buku |
-| POST | `/api/books` | ✓ | ADMIN | Tambah buku |
+| GET | `/api/books` | ✓ | All | Daftar buku + stok |
+| GET | `/api/books/:id` | ✓ | All | Detail + semua copy |
+| POST | `/api/books` | ✓ | ADMIN | Tambah buku + generate copies |
 | PUT | `/api/books/:id` | ✓ | ADMIN | Update buku |
-| DELETE | `/api/books/:id` | ✓ | ADMIN | Hapus buku |
+| DELETE | `/api/books/:id` | ✓ | ADMIN | Hapus buku + copies |
+
+### Book Copies
+| Method | Endpoint | Auth | Role | Deskripsi |
+|---|---|---|---|---|
+| GET | `/api/book-copies/:bookId` | ✓ | All | Semua copy dari buku |
+| POST | `/api/book-copies` | ✓ | ADMIN | Tambah copy baru |
+| PATCH | `/api/book-copies/:id/status` | ✓ | ADMIN | Update status manual |
+| DELETE | `/api/book-copies/:id` | ✓ | ADMIN | Hapus copy |
 
 ### Borrowings
 | Method | Endpoint | Auth | Role | Deskripsi |
 |---|---|---|---|---|
-| GET | `/api/borrow` | ✓ | ADMIN | Semua peminjaman |
-| GET | `/api/borrow/my` | ✓ | SISWA | Peminjaman milik saya |
+| GET | `/api/borrow` | ✓ | All | Semua / milik sendiri |
+| GET | `/api/borrow/check-eligibility` | ✓ | SISWA | Cek bisa pinjam |
+| GET | `/api/borrow/my-fines` | ✓ | SISWA | Denda belum lunas |
+| GET | `/api/borrow/fines-recap` | ✓ | ADMIN/PETUGAS | Rekap denda |
 | POST | `/api/borrow` | ✓ | SISWA | Ajukan pinjam |
-| PATCH | `/api/borrow/:id/approve` | ✓ | ADMIN | Setujui |
-| PATCH | `/api/borrow/:id/reject` | ✓ | ADMIN | Tolak |
-| PATCH | `/api/borrow/:id/return` | ✓ | SISWA | Request return |
-| PATCH | `/api/borrow/:id/verify-return` | ✓ | ADMIN | Verifikasi return |
-| POST | `/api/borrow/:id/pay-fine` | ✓ | ADMIN | Bayar denda |
+| PATCH | `/api/borrow/:id/cancel` | ✓ | SISWA | Batalkan PENDING |
+| PATCH | `/api/borrow/:id/approve` | ✓ | ADMIN/PETUGAS | Setujui/Tolak |
+| PATCH | `/api/borrow/:id/pickup` | ✓ | ADMIN/PETUGAS | Tandai sudah diambil |
+| PATCH | `/api/borrow/:id/return` | ✓ | SISWA | Ajukan pengembalian |
+| PATCH | `/api/borrow/:id/verify-return` | ✓ | ADMIN/PETUGAS | Verifikasi + hitung denda |
+| POST | `/api/borrow/:id/pay-fine` | ✓ | ADMIN/PETUGAS | Proses pembayaran |
 
 ### Visits
 | Method | Endpoint | Auth | Role | Deskripsi |
 |---|---|---|---|---|
-| GET | `/api/visits` | ✓ | ADMIN | Semua kunjungan |
-| POST | `/api/visits/check-in` | ✓ | All | Check-in via QR |
+| POST | `/api/visits/checkin` | ✓ | ADMIN/PETUGAS | Check-in via QR |
+| POST | `/api/visits/checkout` | ✓ | ADMIN/PETUGAS | Check-out via QR |
+| GET | `/api/visits` | ✓ | ADMIN/PETUGAS | Semua kunjungan |
+| GET | `/api/visits/today/count` | ✓ | ADMIN/PETUGAS | Jumlah hari ini |
 
 ### Lainnya
 | Method | Endpoint | Auth | Role | Deskripsi |
 |---|---|---|---|---|
-| GET/POST | `/api/categories` | ✓ | All/ADMIN | Kategori buku |
-| GET | `/api/notifications` | ✓ | SISWA | Notifikasi saya |
-| PATCH | `/api/notifications/:id/read` | ✓ | SISWA | Tandai dibaca |
-| GET | `/api/users` | ✓ | ADMIN | Semua user |
-| GET/POST | `/api/copies` | ✓ | ADMIN | Book copies |
+| GET/POST/PUT/DELETE | `/api/categories` | varies | All/ADMIN | Manajemen kategori |
+| GET/POST/DELETE | `/api/users` | ✓ | ADMIN | Manajemen user |
+| GET | `/api/notifications` | ✓ | Login | Notifikasi saya |
+| PATCH | `/api/notifications/:id/read` | ✓ | Login | Tandai dibaca |
+| PATCH | `/api/notifications/read-all` | ✓ | Login | Tandai semua dibaca |
+| GET | `/api/qr?text=...` | ❌ | — | Generate QR image |
+| GET | `/api/export/*` | ✓ | ADMIN/PETUGAS | Export CSV |
 
 ---
 
@@ -445,8 +711,8 @@ Jika salah satu operasi gagal, seluruh transaction di-rollback otomatis.
 
 ```env
 # .env
-DATABASE_URL="mysql://user:password@localhost:3306/perpustakaan_db"
-JWT_SECRET="your-secret-key"
+DATABASE_URL="mysql://root:root@localhost:8889/perpustakaan"
+JWT_SECRET="supersecret_should_be_changed"
 PORT=3000
 ```
 
@@ -462,16 +728,19 @@ npm install
 npx prisma generate
 
 # Jalankan migrasi database
-npx prisma migrate dev
+npx prisma migrate deploy
+
+# Isi data awal (admin + NISN + buku)
+npm run seed
 
 # Development dengan auto-reload
 npm run dev
 
-# Build TypeScript
+# Build TypeScript ke JavaScript
 npm run build
 
 # Production
 npm start
 ```
 
-### Server berjalan di: `http://localhost:3000`
+Server berjalan di: `http://localhost:3000`

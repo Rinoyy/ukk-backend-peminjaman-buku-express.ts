@@ -6,7 +6,38 @@
 
 **express-qr-backend** adalah server API pusat yang menjadi tulang punggung seluruh sistem perpustakaan. Server ini mengelola semua data, menerapkan aturan bisnis, dan melayani permintaan dari dua aplikasi frontend: Dashboard Admin dan Portal Siswa.
 
-**Teknologi utama:** Express.js + TypeScript + Prisma ORM + MySQL
+**Teknologi utama:** Node.js + Express.js + TypeScript + Prisma ORM + MySQL
+
+---
+
+## Status & Enum Penting
+
+### Status Peminjaman (BorrowStatus)
+
+```
+PENDING ──── approve ──► BORROWED ──── return request ──► RETURN_PENDING ──── verify ──► RETURNED
+   │                                                                │
+   ├── reject ──► REJECTED                                         └── reject return ──► BORROWED
+   └── cancel / 24h auto ──► CANCELLED
+```
+
+| Status | Keterangan |
+|---|---|
+| `PENDING` | Permintaan masuk, copy di-RESERVED, menunggu persetujuan |
+| `BORROWED` | Disetujui, dueDate +7 hari, copy BORROWED |
+| `RETURN_PENDING` | Siswa ajukan pengembalian (butuh isPickedUp = true) |
+| `RETURNED` | Admin verifikasi kondisi, denda dihitung |
+| `REJECTED` | Ditolak admin, copy kembali AVAILABLE |
+| `CANCELLED` | Dibatalkan siswa atau auto-cancel setelah 24 jam |
+
+### Status BookCopy (CopyStatus)
+
+```
+AVAILABLE ──► RESERVED ──── approve ──► BORROWED ──── kondisi GOOD ──► AVAILABLE
+                 │                          │
+                 └── reject/cancel ──►      ├── kondisi DAMAGED ──► DAMAGED
+                       AVAILABLE             └── kondisi LOST ──► LOST
+```
 
 ---
 
@@ -14,21 +45,21 @@
 
 ### 1. Manajemen Pengguna (User Management)
 
-**Entitas:** User (Siswa, Admin, Petugas), StudentNISN
+**Entitas:** User, StudentNISN
 
 **Proses bisnis:**
-- Siswa mendaftar mandiri — **wajib memasukkan NISN** yang terdaftar di sistem sekolah
-- Jika NISN tidak ada di tabel `StudentNISN`, pendaftaran ditolak
-- Admin login menggunakan kredensial yang disiapkan sebelumnya
-- Petugas dibuat oleh Admin melalui dashboard — tidak bisa mendaftar mandiri
+- Siswa mendaftar mandiri — **wajib NISN** yang terdaftar di tabel `StudentNISN`
+- Jika NISN tidak ada, pendaftaran ditolak (HTTP 403)
+- Admin login menggunakan `username + password`
+- Petugas dibuat oleh Admin — tidak bisa mendaftar mandiri
 - Setiap pengguna mendapat JWT token untuk autentikasi sesi
 
 **Aturan:**
-- Password disimpan terenkripsi (bcrypt)
-- QR Code dihasilkan dari data unik pengguna (ID/username) menggunakan library `qrcode`
-- Token JWT memiliki masa berlaku dan menyimpan `userId` + `role`
-- Satu NISN hanya bisa digunakan untuk satu akun
-- Role yang tersedia: `ADMIN`, `PETUGAS`, `SISWA`
+- Password disimpan terenkripsi (bcrypt, 10 salt rounds)
+- QR Code dihasilkan dari `userId` menggunakan library `qrcode`, disimpan sebagai base64
+- Token JWT berisi `{ userId, role }`, berlaku 1 jam
+- Satu NISN hanya bisa untuk satu akun
+- Role: `ADMIN`, `PETUGAS`, `SISWA`
 
 ---
 
@@ -38,17 +69,19 @@
 
 **Proses bisnis:**
 - Satu judul buku (`Book`) bisa memiliki banyak salinan fisik (`BookCopy`)
-- Setiap `BookCopy` memiliki QR Code unik untuk identifikasi fisik
-- Status salinan dikelola secara real-time berdasarkan transaksi peminjaman
+- Setiap `BookCopy` punya `copyNumber` urut dan QR Code unik
+- `Book.stock` = jumlah copy dengan status `AVAILABLE` (dihitung dinamis)
+- Status copy dikelola otomatis oleh alur peminjaman
 
-**Siklus hidup status BookCopy:**
+**Saat membuat buku baru:**
 ```
-AVAILABLE → RESERVED (saat permintaan masuk)
-RESERVED  → BORROWED  (saat admin approve)
-RESERVED  → AVAILABLE (saat reject/cancel)
-BORROWED  → AVAILABLE (saat pengembalian verified, kondisi GOOD)
-BORROWED  → DAMAGED   (saat pengembalian verified, kondisi DAMAGED)
-BORROWED  → LOST      (saat pengembalian verified, kondisi LOST)
+Admin input: title, author, categoryId, stock (misal: 3), image
+     ↓
+Sistem buat 1 record Book
+     ↓
+Sistem buat 3 record BookCopy (copyNumber: 1, 2, 3)
+     ↓
+Tiap BookCopy di-generate QR Code uniknya
 ```
 
 ---
@@ -57,150 +90,157 @@ BORROWED  → LOST      (saat pengembalian verified, kondisi LOST)
 
 Ini adalah proses bisnis paling kompleks dalam sistem.
 
-#### Fase 1: Pengajuan Peminjaman
+#### Fase 1: Pengajuan Peminjaman (Siswa)
 ```
-Siswa ajukan pinjam buku
-        ↓
+Siswa kirim: POST /api/borrow { bookId }
+     ↓
 Backend cek eligibilitas siswa:
-  1. Tidak punya borrowing aktif (PENDING/BORROWED/RETURN_PENDING)
-  2. Tidak punya fine belum dibayar (isPaid: false)
-        ↓
-Backend cari copy dengan status AVAILABLE
-        ↓
-Buat record Borrowing (status: PENDING)
-Update BookCopy → RESERVED
+  ✓ Tidak ada borrowing aktif (PENDING/BORROWED/RETURN_PENDING)
+  ✓ Tidak ada fine belum dibayar (totalFine > 0, isPaid = false)
+     ↓
+Backend cari BookCopy dengan status AVAILABLE (copyNumber terkecil)
+     ↓
+Jika tidak ada → 400 "Tidak ada salinan tersedia"
+     ↓
+Prisma $transaction:
+  1. Buat Borrowing { userId, bookCopyId, status: 'PENDING' }
+  2. Update BookCopy { status: 'RESERVED' }
+     ↓
+Return 201 Created
 ```
+
+**Mengapa pakai transaction?** Mencegah race condition: dua siswa tidak bisa mendapatkan copy yang sama secara bersamaan.
 
 #### Fase 2: Persetujuan Admin/Petugas
 ```
-Admin/Petugas approve:
-  - Borrowing → BORROWED
-  - DueDate = borrowDate + 7 hari
-  - PickupDeadline = now + 2 hari
-  - Kirim notifikasi BORROW_APPROVED ke siswa
+PATCH /api/borrow/:id/approve  { status: 'BORROWED' }
+     ↓
+Prisma $transaction:
+  1. Borrowing → status: BORROWED, borrowDate: now, dueDate: now + 7 hari
+  2. BookCopy → status: BORROWED
+  3. Notification → type: BORROW_APPROVED, pesan ke siswa
 
-Admin/Petugas reject:
-  - Borrowing → REJECTED
-  - BookCopy → AVAILABLE kembali
-  - Kirim notifikasi BORROW_REJECTED ke siswa
+PATCH /api/borrow/:id/approve  { status: 'REJECTED', rejectReason }
+     ↓
+Prisma $transaction:
+  1. Borrowing → status: REJECTED, rejectReason
+  2. BookCopy → status: AVAILABLE   ← copy dikembalikan
+  3. Notification → type: BORROW_REJECTED, pesan ke siswa
 ```
 
-#### Fase 3: Pengajuan Pengembalian
+#### Fase 3: Pengambilan Buku
 ```
-Siswa klik "Kembalikan":
-  - Borrowing → RETURN_PENDING
-  (Admin menunggu siswa datang secara fisik)
-```
-
-#### Fase 4: Verifikasi Pengembalian oleh Admin/Petugas
-```
-Admin/Petugas input kondisi fisik buku:
-
-[GOOD + tepat waktu]
-  → Borrowing: RETURNED, actualReturnDate = now
-  → BookCopy: AVAILABLE
-  → Tidak ada denda
-
-[GOOD + terlambat]
-  → Hitung lateFee = (hari terlambat) × Rp1.000
-  → totalFine = lateFee
-  → Borrowing: RETURNED
-  → BookCopy: AVAILABLE
-
-[DAMAGED]
-  → lateFee (jika terlambat) + damageFee (manual input)
-  → totalFine = lateFee + damageFee
-  → Borrowing: RETURNED
-  → BookCopy: DAMAGED
-
-[LOST]
-  → lateFee + replacementFee
-  → totalFine = total biaya penggantian
-  → Borrowing: RETURNED
-  → BookCopy: LOST
+PATCH /api/borrow/:id/pickup
+     ↓
+Borrowing.isPickedUp = true
+     ↓
+Siswa baru bisa mengajukan pengembalian setelah ini
 ```
 
-#### Fase 5: Pembayaran Denda
+#### Fase 4: Pengajuan Pengembalian (Siswa)
 ```
-Siswa bayar denda tunai ke admin/petugas
-        ↓
-Admin/Petugas input jumlah bayar
-        ↓
-Sistem hitung kembalian = bayar - totalFine
-        ↓
-Buat record Payment
-Borrowing.isPaid = true
+PATCH /api/borrow/:id/return
+     ↓
+Syarat: status = BORROWED dan isPickedUp = true
+     ↓
+Borrowing → status: RETURN_PENDING
+```
+
+#### Fase 5: Verifikasi Pengembalian (Admin/Petugas)
+```
+PATCH /api/borrow/:id/verify-return  { condition, damageFee }
+     ↓
+Hitung denda:
+  daysLate = ceil((actualReturnDate - dueDate) / 86_400_000)
+  lateFee  = max(0, daysLate) × 1000
+  totalFine = lateFee + damageFee
+
+[GOOD + tepat waktu]   → totalFine = 0,         copy: AVAILABLE
+[GOOD + terlambat]     → totalFine = lateFee,    copy: AVAILABLE
+[DAMAGED]              → totalFine = lateFee + damageFee, copy: DAMAGED
+[LOST]                 → totalFine = lateFee + damageFee, copy: LOST
+
+isPaid = (totalFine === 0)  ← otomatis true jika tidak ada denda
+```
+
+#### Fase 6: Pembayaran Denda
+```
+POST /api/borrow/:id/pay-fine  { amountPaid }
+     ↓
+Syarat: amountPaid >= totalFine
+     ↓
+Hitung kembalian = amountPaid - totalFine
+     ↓
+Prisma $transaction:
+  1. Buat Payment { borrowingId, amount, amountPaid, change, paidById }
+  2. Borrowing.isPaid = true
 ```
 
 ---
 
 ### 4. Sistem Denda (Fine System)
 
-**Kalkulasi denda:**
+**Kalkulasi:**
 
-| Kondisi | Denda |
+| Kondisi | Formula |
 |---|---|
-| Terlambat | Rp 1.000 × jumlah hari terlambat |
-| Rusak | lateFee + damageFee (ditentukan admin) |
-| Hilang | lateFee + biaya penggantian buku |
+| Terlambat | `ceil(hari terlambat) × Rp 1.000` |
+| Rusak | `lateFee + damageFee (input admin)` |
+| Hilang | `lateFee + biaya penggantian (input admin)` |
 
 **Dampak denda:**
-- Siswa dengan denda belum dibayar **tidak bisa mengajukan peminjaman baru**
-- Denda harus dilunasi secara fisik ke perpustakaan
-- Admin yang memproses pembayaran dan mencatatnya ke sistem
+- Siswa dengan `totalFine > 0 && isPaid = false` **tidak bisa mengajukan peminjaman baru**
+- Denda dilunasi secara tunai ke admin, admin mencatat di sistem
+- Setelah lunas: siswa bisa meminjam lagi
 
 ---
 
 ### 5. Sistem Kunjungan via QR (Visit)
 
-**Tujuan:** Merekam kehadiran siswa di perpustakaan.
-
-**Proses:**
 ```
-Siswa scan QR Code di pintu masuk
-        ↓
-POST /api/visits/check-in dengan data QR
-        ↓
-Sistem decode QR → identifikasi userId
-        ↓
-Buat record Visit { userId, visitedAt: now }
-        ↓
-Return konfirmasi check-in berhasil
+Siswa tampilkan QR Code dari halaman Profile
+     ↓
+Petugas scan QR siswa
+     ↓
+POST /api/visits/checkin { userId }
+     ↓
+Sistem decode userId dari QR
+Buat record Visit { userId, visitDate: now }
+     ↓
+(saat keluar)
+POST /api/visits/checkout { userId }
+     ↓
+Update Visit.checkoutDate = now
 ```
 
 ---
 
 ### 6. Sistem Notifikasi
 
-**Jenis notifikasi yang dikirim sistem:**
-
-| Type | Kapan | Konten |
+| Type | Kapan | Pesan |
 |---|---|---|
-| `BORROW_APPROVED` | Admin approve peminjaman | "Peminjaman kamu disetujui. Ambil buku dalam 2 hari." |
-| `BORROW_REJECTED` | Admin reject peminjaman | "Peminjaman kamu ditolak." + alasan |
-| `PICKUP_REMINDER` | Mendekati batas pengambilan | "Segera ambil buku sebelum [tanggal]" |
-| `GENERAL` | Manual dari Admin | Pesan bebas dari perpustakaan |
+| `BORROW_APPROVED` | Admin approve | "Peminjaman disetujui. Ambil buku dalam 2 hari." |
+| `BORROW_REJECTED` | Admin reject | "Peminjaman ditolak: [alasan]" |
+| `PICKUP_REMINDER` | Mendekati deadline | "Segera ambil buku sebelum [tanggal]" |
+| `GENERAL` | Manual Admin | Pesan bebas |
 
 ---
 
 ### 7. Automasi: Cron Job
 
-**Tugas:** Membatalkan peminjaman yang tidak diambil.
+**Jadwal:** Setiap 1 jam (`0 * * * *`)
 
-**Jadwal:** Berjalan setiap **1 jam**
-
-**Logika:**
 ```
-Cari semua Borrowing dengan:
-  - status: PENDING
-  - borrowDate lebih dari 24 jam yang lalu
+Cari semua Borrowing:
+  - status = 'PENDING'
+  - createdAt < (now - 24 jam)
 
-Untuk setiap record:
-  - Update status → CANCELLED
-  - Update BookCopy → AVAILABLE
+Untuk tiap yang ditemukan:
+  1. Borrowing → status: CANCELLED
+  2. BookCopy → status: AVAILABLE
 ```
 
-**Tujuan bisnis:** Mencegah salinan buku "terkunci" oleh permintaan yang tidak pernah diambil, sehingga ketersediaan buku selalu akurat.
+**Tujuan:** Mencegah copy buku "terkunci" oleh permintaan yang tidak pernah diproses.
 
 ---
 
@@ -208,33 +248,36 @@ Untuk setiap record:
 
 | Aturan | Detail |
 |---|---|
-| Registrasi wajib NISN | Hanya siswa dengan NISN terdaftar yang bisa mendaftar |
-| Satu peminjaman aktif per siswa | Siswa tidak bisa pinjam 2 buku bersamaan |
-| Blokir saat ada denda | Denda belum dibayar → tidak bisa pinjam baru |
+| Registrasi wajib NISN | Hanya siswa dengan NISN terdaftar yang bisa daftar |
+| Satu peminjaman aktif | Siswa tidak bisa pinjam 2 buku bersamaan |
+| Blokir saat ada denda | Denda belum lunas → tidak bisa pinjam baru |
 | Batas waktu pinjam | 7 hari dari tanggal persetujuan |
 | Batas ambil buku | 2 hari dari tanggal persetujuan |
-| Auto-cancel | Pending > 24 jam → otomatis dibatalkan |
+| Auto-cancel | PENDING > 24 jam → otomatis CANCELLED |
 | Denda keterlambatan | Rp 1.000/hari setelah due date |
+| Atomic reservation | Copy di-RESERVED bersamaan dengan Borrowing dibuat |
 
 ---
 
 ## Pemisahan Akses Berdasarkan Role
 
-| Endpoint | SISWA | PETUGAS | ADMIN |
-|---|---|---|---|
-| Register (butuh NISN) | ✓ | - | - |
+| Endpoint / Aksi | SISWA | PETUGAS | ADMIN |
+|---|:---:|:---:|:---:|
+| Register (butuh NISN) | ✓ | — | — |
 | Login | ✓ | ✓ | ✓ |
-| Lihat buku | ✓ | ✓ | ✓ |
-| Ajukan pinjam | ✓ | - | - |
+| Lihat buku & katalog | ✓ | ✓ | ✓ |
+| Ajukan peminjaman | ✓ | — | — |
+| Batalkan PENDING | ✓ | — | — |
+| Ajukan pengembalian | ✓ | — | — |
 | Lihat riwayat peminjaman | milik sendiri | semua | semua |
-| Approve/Reject pinjam | - | ✓ | ✓ |
-| Tandai buku diambil | - | ✓ | ✓ |
-| Verifikasi pengembalian | - | ✓ | ✓ |
-| Proses pembayaran denda | - | ✓ | ✓ |
-| Rekap denda | - | ✓ | ✓ |
-| Scan check-in/checkout kunjungan | - | ✓ | ✓ |
-| Lihat data kunjungan | - | ✓ | ✓ |
-| CRUD buku & kategori | - | - | ✓ |
-| Kelola NISN siswa | - | - | ✓ |
-| Buat akun Petugas | - | - | ✓ |
-| Export data CSV | - | - | ✓ |
+| Approve/Reject pinjam | — | ✓ | ✓ |
+| Tandai buku diambil | — | ✓ | ✓ |
+| Verifikasi pengembalian | — | ✓ | ✓ |
+| Proses pembayaran denda | — | ✓ | ✓ |
+| Rekap denda | — | ✓ | ✓ |
+| Scan check-in/checkout | — | ✓ | ✓ |
+| Lihat data kunjungan | — | ✓ | ✓ |
+| CRUD buku & kategori | — | — | ✓ |
+| Kelola NISN siswa | — | — | ✓ |
+| Buat akun Petugas | — | — | ✓ |
+| Export data CSV | — | — | ✓ |
