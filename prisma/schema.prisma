@@ -81,6 +81,7 @@ model Borrowing {
   lateFee          Int       @default(0) // Denda keterlambatan (Rp 1000/hari)
   damageFee        Int       @default(0) // Denda kerusakan/hilang
   totalFine        Int       @default(0) // Total denda
+  isPickedUp       Boolean   @default(false) // Buku sudah diambil siswa
   isPaid           Boolean   @default(false) // Status pembayaran denda
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

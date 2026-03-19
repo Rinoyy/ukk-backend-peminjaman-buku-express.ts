@@ -318,6 +318,10 @@ export const returnBookRequest = async (req: AuthRequest, res: Response) => {
             return res.status(400).json({ message: "Book is not currently borrowed" });
         }
 
+        if (!borrowing.isPickedUp) {
+            return res.status(400).json({ message: "Buku belum diambil dari perpustakaan." });
+        }
+
         const updated = await prisma.borrowing.update({
             where: { id: Number(id) },
             data: { status: 'RETURN_PENDING' }
@@ -326,6 +330,33 @@ export const returnBookRequest = async (req: AuthRequest, res: Response) => {
         res.json(updated);
     } catch (error) {
         res.status(500).json({ message: "Error requesting return", error });
+    }
+};
+
+// 3b. Admin Tandai Buku Sudah Diambil
+export const markPickedUp = async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+
+    try {
+        const borrowing = await prisma.borrowing.findUnique({ where: { id: Number(id) } });
+        if (!borrowing) return res.status(404).json({ message: "Borrowing not found" });
+
+        if (borrowing.status !== 'BORROWED') {
+            return res.status(400).json({ message: "Status peminjaman tidak valid." });
+        }
+
+        if (borrowing.isPickedUp) {
+            return res.status(400).json({ message: "Buku sudah ditandai diambil." });
+        }
+
+        const updated = await prisma.borrowing.update({
+            where: { id: Number(id) },
+            data: { isPickedUp: true }
+        });
+
+        res.json(updated);
+    } catch (error) {
+        res.status(500).json({ message: "Error marking pickup", error });
     }
 };
 

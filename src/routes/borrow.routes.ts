@@ -9,7 +9,8 @@ import {
     getMyFines,
     payFine,
     getFinesRecap,
-    cancelBorrow
+    cancelBorrow,
+    markPickedUp
 } from '../controllers/borrow.controller';
 import { authenticateJWT, authorizeRole } from '../middlewares/auth.middleware';
 
@@ -26,6 +27,7 @@ router.post('/:id/return', authenticateJWT, authorizeRole(['SISWA']), returnBook
 
 // Admin
 router.post('/:id/approve', authenticateJWT, authorizeRole(['ADMIN']), handleBorrowRequest); // body: { status: 'BORROWED' | 'REJECTED' }
+router.post('/:id/pickup', authenticateJWT, authorizeRole(['ADMIN']), markPickedUp); // Tandai buku sudah diambil siswa
 router.post('/:id/verify-return', authenticateJWT, authorizeRole(['ADMIN']), handleReturnRequest); // body: { status, condition, damageFee }
 router.get('/fines-recap', authenticateJWT, authorizeRole(['ADMIN']), getFinesRecap);
 router.post('/:id/pay', authenticateJWT, authorizeRole(['ADMIN']), payFine); // body: { amountPaid }

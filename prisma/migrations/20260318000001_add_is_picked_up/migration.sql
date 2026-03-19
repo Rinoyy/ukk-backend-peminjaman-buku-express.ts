@@ -1,0 +1,1 @@
+ALTER TABLE `Borrowing` ADD COLUMN `isPickedUp` BOOLEAN NOT NULL DEFAULT false;
