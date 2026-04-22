@@ -47,6 +47,7 @@ model Book {
   categoryId Int?
   description String?    @db.Text
   image      String?
+  price      Int        @default(0)
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
   copies     BookCopy[]

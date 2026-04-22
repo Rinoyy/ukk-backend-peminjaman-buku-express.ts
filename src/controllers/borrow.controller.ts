@@ -128,10 +128,25 @@ export const getMyFines = async (req: AuthRequest, res: Response) => {
  * @param  res - 201 data peminjaman | 400 tidak eligible/stok habis | 500 server error
  */
 export const borrowBook = async (req: AuthRequest, res: Response) => {
-    const { bookId } = req.body;
+    const { bookId, dueDate } = req.body;
     const userId = req.user?.userId;
 
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    if (!dueDate) {
+        return res.status(400).json({ message: "Tanggal pengembalian wajib diisi" });
+    }
+
+    const parsedDueDate = new Date(dueDate);
+    if (isNaN(parsedDueDate.getTime())) {
+        return res.status(400).json({ message: "Format tanggal pengembalian tidak valid" });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (parsedDueDate <= today) {
+        return res.status(400).json({ message: "Tanggal pengembalian harus lebih dari hari ini" });
+    }
 
     try {
         // Check eligibility first
@@ -187,7 +202,8 @@ export const borrowBook = async (req: AuthRequest, res: Response) => {
                 userId,
                 bookCopyId: availableCopy.id,
                 status: 'PENDING',
-                borrowDate: new Date()
+                borrowDate: new Date(),
+                dueDate: parsedDueDate
             }
         });
 
@@ -260,7 +276,7 @@ export const cancelBorrow = async (req: AuthRequest, res: Response) => {
  */
 export const handleBorrowRequest = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { status, rejectReason } = req.body; // 'BORROWED' or 'REJECTED'
+    const { status, rejectReason, dueDate } = req.body; // 'BORROWED' or 'REJECTED'
 
     if (!['BORROWED', 'REJECTED'].includes(status)) {
         return res.status(400).json({ message: "Invalid status" });
@@ -286,9 +302,16 @@ export const handleBorrowRequest = async (req: Request, res: Response) => {
         const username = borrowing.user.username;
 
         if (status === 'BORROWED') {
-            // Set due date (7 days from now)
-            const dueDate = new Date();
-            dueDate.setDate(dueDate.getDate() + LOAN_DURATION_DAYS);
+            // Use admin override, else keep student's requested dueDate, else fallback +7 days
+            let resolvedDueDate: Date;
+            if (dueDate) {
+                resolvedDueDate = new Date(dueDate);
+            } else if (borrowing.dueDate) {
+                resolvedDueDate = borrowing.dueDate;
+            } else {
+                resolvedDueDate = new Date();
+                resolvedDueDate.setDate(resolvedDueDate.getDate() + LOAN_DURATION_DAYS);
+            }
 
             // Pickup deadline: 2 days from now
             const pickupDeadline = new Date();
@@ -305,12 +328,12 @@ export const handleBorrowRequest = async (req: Request, res: Response) => {
                 data: {
                     status,
                     borrowDate: new Date(),
-                    dueDate
+                    dueDate: resolvedDueDate
                 }
             });
 
             // Create notification for the student
-            const dueDateStr = dueDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+            const dueDateStr = resolvedDueDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
             const pickupDeadlineStr = pickupDeadline.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
             await prisma.notification.create({
@@ -450,7 +473,11 @@ export const handleReturnRequest = async (req: Request, res: Response) => {
     try {
         const borrowing = await prisma.borrowing.findUnique({
             where: { id: Number(id) },
-            include: { bookCopy: true }
+            include: {
+                bookCopy: {
+                    include: { book: { select: { price: true } } }
+                }
+            }
         });
         if (!borrowing) return res.status(404).json({ message: "Borrowing not found" });
 
@@ -467,7 +494,12 @@ export const handleReturnRequest = async (req: Request, res: Response) => {
                 lateFee = calculateLateFee(borrowing.dueDate, actualReturnDate);
             }
 
-            const totalFine = lateFee + (damageFee || 0);
+            // Auto-use book price as damage fee for DAMAGED/LOST
+            const resolvedDamageFee = (condition === 'DAMAGED' || condition === 'LOST')
+                ? (borrowing.bookCopy.book.price ?? 0)
+                : 0;
+
+            const totalFine = lateFee + resolvedDamageFee;
             const isPaid = totalFine === 0;
 
             // Update book copy status based on condition
@@ -487,7 +519,7 @@ export const handleReturnRequest = async (req: Request, res: Response) => {
                     actualReturnDate,
                     condition: condition || 'GOOD',
                     lateFee,
-                    damageFee: damageFee || 0,
+                    damageFee: resolvedDamageFee,
                     totalFine,
                     isPaid
                 }
@@ -496,7 +528,7 @@ export const handleReturnRequest = async (req: Request, res: Response) => {
             res.json({
                 message: "Return processed",
                 lateFee,
-                damageFee: damageFee || 0,
+                damageFee: resolvedDamageFee,
                 totalFine,
                 isPaid
             });
@@ -600,7 +632,7 @@ export const getBorrowings = async (req: AuthRequest, res: Response) => {
                 include: {
                     user: { select: { username: true } },
                     bookCopy: {
-                        include: { book: { select: { title: true, author: true } } }
+                        include: { book: { select: { title: true, author: true, price: true } } }
                     },
                     payment: true
                 },
@@ -611,7 +643,7 @@ export const getBorrowings = async (req: AuthRequest, res: Response) => {
                 where: { userId },
                 include: {
                     bookCopy: {
-                        include: { book: { select: { title: true, author: true } } }
+                        include: { book: { select: { title: true, author: true, price: true } } }
                     },
                     payment: true
                 },
@@ -620,7 +652,8 @@ export const getBorrowings = async (req: AuthRequest, res: Response) => {
         }
         res.json(borrowings);
     } catch (error) {
-        res.status(500).json({ message: "Error fetching borrowings", error });
+        const errMessage = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ message: "Error fetching borrowings", error: errMessage });
     }
 };
 

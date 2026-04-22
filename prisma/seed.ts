@@ -76,6 +76,7 @@ async function main() {
             categoryId: createdCategories['JavaScript'],
             description: 'Panduan lengkap untuk mempelajari JavaScript modern dari dasar hingga lanjut.',
             stock: 5,
+            price: 95000,
         },
         {
             title: 'Eloquent JavaScript',
@@ -83,6 +84,7 @@ async function main() {
             categoryId: createdCategories['JavaScript'],
             description: 'Buku klasik yang mengajarkan cara berpikir komputasional menggunakan JavaScript.',
             stock: 3,
+            price: 110000,
         },
         {
             title: 'React Up and Running',
@@ -90,6 +92,7 @@ async function main() {
             categoryId: createdCategories['JavaScript'],
             description: 'Belajar React.js step-by-step untuk membangun aplikasi web modern.',
             stock: 4,
+            price: 120000,
         },
         {
             title: 'PHP and MySQL Web Development',
@@ -97,6 +100,7 @@ async function main() {
             categoryId: createdCategories['PHP'],
             description: 'Membahas integrasi PHP dengan MySQL secara mendalam untuk membangun aplikasi dinamis.',
             stock: 6,
+            price: 105000,
         },
         {
             title: "The Animator's Survival Kit",
@@ -104,6 +108,7 @@ async function main() {
             categoryId: createdCategories['Animasi'],
             description: 'Buku wajib bagi setiap animator — prinsip dasar animasi, timing, dan spacing.',
             stock: 3,
+            price: 150000,
         },
         {
             title: 'SQL in 10 Minutes',
@@ -111,6 +116,7 @@ async function main() {
             categoryId: createdCategories['Database'],
             description: 'Cara tercepat untuk memahami SQL. Padat dan langsung ke inti permasalahan.',
             stock: 5,
+            price: 85000,
         },
     ];
 
@@ -121,6 +127,7 @@ async function main() {
                 author: book.author,
                 categoryId: book.categoryId,
                 description: book.description,
+                price: book.price,
             },
         });
 

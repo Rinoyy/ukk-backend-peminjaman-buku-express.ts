@@ -1,5 +1,5 @@
 -- 007: Buat tabel Notification dan tambah kolom image pada Book
-ALTER TABLE `Book` ADD COLUMN `image` VARCHAR(191) NULL;
+ALTER TABLE `Book` ADD COLUMN IF NOT EXISTS `image` VARCHAR(191) NULL;
 
 CREATE TABLE `Notification` (
     `id`        INTEGER NOT NULL AUTO_INCREMENT,

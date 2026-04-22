@@ -92,7 +92,7 @@ export const getBookById = async (req: Request, res: Response) => {
  * @param  res - 201 data buku lengkap | 500 server error
  */
 export const createBook = async (req: Request, res: Response) => {
-    const { title, author, categoryId, stock, description } = req.body;
+    const { title, author, categoryId, stock, description, price } = req.body;
     const image = req.file ? `/uploads/${req.file.filename}` : null;
 
     try {
@@ -103,7 +103,8 @@ export const createBook = async (req: Request, res: Response) => {
                 author,
                 categoryId: categoryId ? Number(categoryId) : null,
                 description,
-                image
+                image,
+                price: price ? Number(price) : 0
             }
         });
 
@@ -165,7 +166,7 @@ export const createBook = async (req: Request, res: Response) => {
  */
 export const updateBook = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { title, author, categoryId, description } = req.body;
+    const { title, author, categoryId, description, price } = req.body;
     const image = req.file ? `/uploads/${req.file.filename}` : undefined;
 
     try {
@@ -174,6 +175,7 @@ export const updateBook = async (req: Request, res: Response) => {
             author,
             categoryId: categoryId ? Number(categoryId) : null,
             description,
+            price: price !== undefined ? Number(price) : undefined,
         };
 
         // Only update image if a new file was uploaded
