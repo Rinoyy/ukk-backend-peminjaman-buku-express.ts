@@ -82,12 +82,18 @@ export const register = async (req: Request, res: Response): Promise<void> => {
  */
 export const login = async (req: Request, res: Response): Promise<void> => {
     const { nisn, username, password } = req.body;
+    const identifier = (nisn || username || '').trim();
 
     try {
-        // Siswa login pakai NISN, Admin pakai username
-        const user = nisn
-            ? await prisma.user.findUnique({ where: { nisn } })
-            : await prisma.user.findUnique({ where: { username } });
+        // Cari user berdasarkan NISN atau username — mendukung siswa (NISN) maupun guru/staff (username)
+        const user = await prisma.user.findFirst({
+            where: {
+                OR: [
+                    { nisn: identifier },
+                    { username: identifier },
+                ],
+            },
+        });
 
         if (!user) {
             res.status(400).json({ message: 'NISN/username atau password salah.' });

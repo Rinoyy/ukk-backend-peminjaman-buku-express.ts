@@ -148,6 +148,13 @@ export const borrowBook = async (req: AuthRequest, res: Response) => {
         return res.status(400).json({ message: "Tanggal pengembalian harus lebih dari hari ini" });
     }
 
+    const maxDueDate = new Date();
+    maxDueDate.setDate(maxDueDate.getDate() + LOAN_DURATION_DAYS);
+    maxDueDate.setHours(23, 59, 59, 999);
+    if (parsedDueDate > maxDueDate) {
+        return res.status(400).json({ message: `Maksimal peminjaman adalah ${LOAN_DURATION_DAYS} hari` });
+    }
+
     try {
         // Check eligibility first
         const unreturnedBook = await prisma.borrowing.findFirst({
@@ -276,7 +283,7 @@ export const cancelBorrow = async (req: AuthRequest, res: Response) => {
  */
 export const handleBorrowRequest = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { status, rejectReason, dueDate } = req.body; // 'BORROWED' or 'REJECTED'
+    const { status, rejectReason } = req.body; // 'BORROWED' or 'REJECTED'
 
     if (!['BORROWED', 'REJECTED'].includes(status)) {
         return res.status(400).json({ message: "Invalid status" });
@@ -302,16 +309,11 @@ export const handleBorrowRequest = async (req: Request, res: Response) => {
         const username = borrowing.user.username;
 
         if (status === 'BORROWED') {
-            // Use admin override, else keep student's requested dueDate, else fallback +7 days
-            let resolvedDueDate: Date;
-            if (dueDate) {
-                resolvedDueDate = new Date(dueDate);
-            } else if (borrowing.dueDate) {
-                resolvedDueDate = borrowing.dueDate;
-            } else {
-                resolvedDueDate = new Date();
-                resolvedDueDate.setDate(resolvedDueDate.getDate() + LOAN_DURATION_DAYS);
-            }
+            const resolvedDueDate = borrowing.dueDate ?? (() => {
+                const d = new Date();
+                d.setDate(d.getDate() + LOAN_DURATION_DAYS);
+                return d;
+            })();
 
             // Pickup deadline: 2 days from now
             const pickupDeadline = new Date();
