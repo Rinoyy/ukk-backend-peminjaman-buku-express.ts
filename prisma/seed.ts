@@ -35,19 +35,28 @@ async function main() {
         console.log(`  + NISN ${data.nisn} — ${data.name}`);
     }
 
-    // ─── 2. Admin ────────────────────────────────────────────────────────────
-    console.log('\n👤 Membuat akun admin...');
-    const hashedAdminPw = await bcrypt.hash('admin123', 10);
-    const admin = await prisma.user.create({
-        data: {
-            username: 'admin',
-            password: hashedAdminPw,
-            role: 'ADMIN',
-        },
-    });
-    const adminQR = await QRCode.toDataURL(JSON.stringify({ id: admin.id, role: admin.role, username: admin.username, valid: true }));
-    await prisma.user.update({ where: { id: admin.id }, data: { qrCode: adminQR } });
-    console.log('  + admin / admin123');
+    // ─── 2. Akun Default ─────────────────────────────────────────────────────
+    console.log('\n👤 Membuat akun default...');
+    const defaultUsers = [
+        { username: 'admin', password: 'admin123', role: 'ADMIN' },
+    ];
+
+    for (const account of defaultUsers) {
+        const hashedPassword = await bcrypt.hash(account.password, 10);
+        const user = await prisma.user.create({
+            data: {
+                username: account.username,
+                password: hashedPassword,
+                role: account.role,
+            },
+        });
+
+        const qrData = JSON.stringify({ id: user.id, role: user.role, username: user.username, valid: true });
+        const qrCode = await QRCode.toDataURL(qrData);
+        await prisma.user.update({ where: { id: user.id }, data: { qrCode } });
+
+        console.log(`  + ${account.username} / ${account.password} (${account.role})`);
+    }
 
     // ─── 3. Kategori ─────────────────────────────────────────────────────────
     console.log('\n📂 Mengisi kategori...');

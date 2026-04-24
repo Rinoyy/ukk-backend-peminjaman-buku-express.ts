@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const studentNisn_controller_1 = require("../controllers/studentNisn.controller");
+const auth_middleware_1 = require("../middlewares/auth.middleware");
+const router = (0, express_1.Router)();
+const allowed = ['ADMIN', 'PETUGAS'];
+router.get('/', auth_middleware_1.authenticateJWT, (0, auth_middleware_1.authorizeRole)(allowed), studentNisn_controller_1.getStudentNisns);
+router.post('/', auth_middleware_1.authenticateJWT, (0, auth_middleware_1.authorizeRole)(allowed), studentNisn_controller_1.createStudentNisn);
+router.put('/:id', auth_middleware_1.authenticateJWT, (0, auth_middleware_1.authorizeRole)(allowed), studentNisn_controller_1.updateStudentNisn);
+router.delete('/:id', auth_middleware_1.authenticateJWT, (0, auth_middleware_1.authorizeRole)(allowed), studentNisn_controller_1.deleteStudentNisn);
+exports.default = router;

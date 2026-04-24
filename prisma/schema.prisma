@@ -11,8 +11,9 @@ model User {
   id        Int      @id @default(autoincrement())
   username  String   @unique
   nisn      String?  @unique // Hanya untuk SISWA
+  nip       String?  @unique // Hanya untuk GURU/STAFF
   password  String
-  role      String   // "ADMIN", "PETUGAS", "SISWA"
+  role      String   // "ADMIN", "PETUGAS", "GURU", "STAFF", "SISWA"
   qrCode    String?  @db.Text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -27,6 +28,15 @@ model StudentNISN {
   id        Int      @id @default(autoincrement())
   nisn      String   @unique
   name      String   // Nama siswa sesuai data sekolah
+  createdAt DateTime @default(now())
+}
+
+// Daftar NIP guru/staff yang diizinkan didaftarkan admin
+model StaffNIP {
+  id        Int      @id @default(autoincrement())
+  nip       String   @unique
+  name      String   // Nama guru/staff sesuai data sekolah
+  role      String   // "GURU" atau "STAFF"
   createdAt DateTime @default(now())
 }
 

@@ -16,6 +16,30 @@ Login melalui dashboard di `http://localhost:5173`.
 
 ---
 
+## Guru
+
+| Field    | Value     |
+|----------|-----------|
+| Username | `guru`    |
+| Password | `guru123` |
+| Role     | `GURU`    |
+
+Login melalui web members di `http://localhost:5174`.
+
+---
+
+## Staff
+
+| Field    | Value      |
+|----------|------------|
+| Username | `staff`    |
+| Password | `staff123` |
+| Role     | `STAFF`    |
+
+Login melalui web members di `http://localhost:5174`.
+
+---
+
 ## Catatan
 
 - Password disimpan dalam bentuk hash bcrypt (salt rounds: 10).
@@ -40,6 +64,9 @@ npm run seed
 
 1. Kosongkan semua tabel (urutan aman sesuai foreign key)
 2. Isi whitelist NISN siswa (`StudentNISN`)
-3. Buat akun admin (`admin` / `admin123`)
+3. Buat akun default:
+   - Admin (`admin` / `admin123`)
+   - Guru (`guru` / `guru123`)
+   - Staff (`staff` / `staff123`)
 4. Isi kategori buku default
 5. Isi buku beserta salinan fisik + QR Code masing-masing

@@ -1,11 +1,14 @@
-import { Request, Response } from 'express';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import prisma from '../prisma';
-import { generateQRCode } from '../utils/qr';
-
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.login = exports.register = void 0;
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const prisma_1 = __importDefault(require("../prisma"));
+const qr_1 = require("../utils/qr");
 const SECRET_KEY = process.env.JWT_SECRET || 'secret';
-
 /**
  * Mendaftarkan akun siswa baru.
  *
@@ -21,33 +24,28 @@ const SECRET_KEY = process.env.JWT_SECRET || 'secret';
  * @param  req - Request body: { nisn, password }
  * @param  res - 201 user data | 400 validasi gagal | 403 NISN tidak terdaftar | 500 server error
  */
-export const register = async (req: Request, res: Response): Promise<void> => {
+const register = async (req, res) => {
     const { nisn, password } = req.body;
-
     if (!nisn || !password) {
         res.status(400).json({ message: 'NISN dan password wajib diisi.' });
         return;
     }
-
     try {
         // Cek apakah NISN terdaftar di data sekolah
-        const validNISN = await prisma.studentNISN.findUnique({ where: { nisn } });
+        const validNISN = await prisma_1.default.studentNISN.findUnique({ where: { nisn } });
         if (!validNISN) {
             res.status(403).json({ message: 'NISN tidak terdaftar di sistem sekolah. Hubungi admin.' });
             return;
         }
-
         // Cek apakah NISN sudah dipakai akun lain
-        const nisnTaken = await prisma.user.findUnique({ where: { nisn } });
+        const nisnTaken = await prisma_1.default.user.findUnique({ where: { nisn } });
         if (nisnTaken) {
             res.status(400).json({ message: 'NISN sudah digunakan untuk akun lain.' });
             return;
         }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-
+        const hashedPassword = await bcryptjs_1.default.hash(password, 10);
         // username = nisn agar kolom non-null tetap terpenuhi
-        const user = await prisma.user.create({
+        const user = await prisma_1.default.user.create({
             data: {
                 username: validNISN.name,
                 nisn,
@@ -55,21 +53,19 @@ export const register = async (req: Request, res: Response): Promise<void> => {
                 role: 'SISWA',
             },
         });
-
         const qrData = JSON.stringify({ id: user.id, role: user.role, nisn: user.nisn, valid: true });
-        const qrCodeImage = await generateQRCode(qrData);
-
-        const updatedUser = await prisma.user.update({
+        const qrCodeImage = await (0, qr_1.generateQRCode)(qrData);
+        const updatedUser = await prisma_1.default.user.update({
             where: { id: user.id },
             data: { qrCode: qrCodeImage },
         });
-
         res.status(201).json({ message: 'Registrasi berhasil', user: updatedUser });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ message: 'Error registering user', error });
     }
 };
-
+exports.register = register;
 /**
  * Login untuk semua role (Siswa pakai NISN, Admin/Petugas pakai username).
  *
@@ -80,13 +76,12 @@ export const register = async (req: Request, res: Response): Promise<void> => {
  * @param  req - Request body: { nisn?, username?, password }
  * @param  res - 200 { token, user } | 400 kredensial salah | 500 server error
  */
-export const login = async (req: Request, res: Response): Promise<void> => {
+const login = async (req, res) => {
     const { nisn, username, password } = req.body;
     const identifier = (nisn || username || '').trim();
-
     try {
         // Cari user berdasarkan NISN, NIP, atau username
-        const user = await prisma.user.findFirst({
+        const user = await prisma_1.default.user.findFirst({
             where: {
                 OR: [
                     { nisn: identifier },
@@ -95,27 +90,24 @@ export const login = async (req: Request, res: Response): Promise<void> => {
                 ],
             },
         });
-
         if (!user) {
             res.status(400).json({ message: 'NISN/username atau password salah.' });
             return;
         }
-
-        const isPasswordValid = await bcrypt.compare(password, user.password);
+        const isPasswordValid = await bcryptjs_1.default.compare(password, user.password);
         if (!isPasswordValid) {
             res.status(400).json({ message: 'NISN/username atau password salah.' });
             return;
         }
-
-        const token = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
-
+        const token = jsonwebtoken_1.default.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
         // Sertakan nama dari StudentNISN jika siswa
         const studentInfo = user.nisn
-            ? await prisma.studentNISN.findUnique({ where: { nisn: user.nisn } })
+            ? await prisma_1.default.studentNISN.findUnique({ where: { nisn: user.nisn } })
             : null;
-
         res.json({ token, user: { ...user, name: studentInfo?.name ?? null } });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ message: 'Error logging in', error });
     }
 };
+exports.login = login;

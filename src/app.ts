@@ -13,6 +13,7 @@ import qrRoutes           from './routes/qr.routes';
 import userRoutes         from './routes/user.routes';
 import visitRoutes        from './routes/visit.routes';
 import studentNisnRoutes  from './routes/studentNisn.routes';
+import staffNipRoutes     from './routes/staffNip.routes';
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use('/api/qr',            qrRoutes);
 app.use('/api/users',         userRoutes);
 app.use('/api/visits',        visitRoutes);
 app.use('/api/student-nisns', studentNisnRoutes);
+app.use('/api/staff-nips',   staffNipRoutes);
 
 app.get('/', (_, res) => {
     res.json({ message: 'API Sistem Peminjaman Buku berjalan 🚀' });
