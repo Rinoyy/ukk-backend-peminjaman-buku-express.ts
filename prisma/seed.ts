@@ -17,6 +17,7 @@ async function main() {
     await prisma.category.deleteMany();
     await prisma.user.deleteMany();
     await prisma.studentNISN.deleteMany();
+    await prisma.staffNIP.deleteMany();
 
     console.log('✅ Semua tabel berhasil dikosongkan.\n');
 
@@ -35,7 +36,25 @@ async function main() {
         console.log(`  + NISN ${data.nisn} — ${data.name}`);
     }
 
-    // ─── 2. Akun Default ─────────────────────────────────────────────────────
+    // ─── 2. NIP Guru & Staff yang Diizinkan ─────────────────────────────────
+    console.log('📋 Mengisi data NIP guru dan staff...');
+    const nipList = [
+        { nip: '196801011990031001', name: 'Bapak Hendra Kusuma', role: 'GURU' },
+        { nip: '197205152001122002', name: 'Ibu Ratna Dewi', role: 'GURU' },
+        { nip: '198003202005011003', name: 'Bapak Agus Setiawan', role: 'GURU' },
+        { nip: '197811102003122004', name: 'Ibu Sari Wulandari', role: 'GURU' },
+        { nip: '199001012015031005', name: 'Bapak Diki Firmansyah', role: 'GURU' },
+        { nip: '198506152010011006', name: 'Bapak Eko Prasetyo', role: 'STAFF' },
+        { nip: '199203042018022007', name: 'Ibu Lina Susanti', role: 'STAFF' },
+        { nip: '198809102014011008', name: 'Bapak Fajar Nugroho', role: 'STAFF' },
+    ];
+
+    for (const data of nipList) {
+        await prisma.staffNIP.create({ data });
+        console.log(`  + NIP ${data.nip} — ${data.name} (${data.role})`);
+    }
+
+    // ─── 3. Akun Default ──────────────────────────────────────────────────────
     console.log('\n👤 Membuat akun default...');
     const defaultUsers = [
         { username: 'admin', password: 'admin123', role: 'ADMIN' },
@@ -58,7 +77,7 @@ async function main() {
         console.log(`  + ${account.username} / ${account.password} (${account.role})`);
     }
 
-    // ─── 3. Kategori ─────────────────────────────────────────────────────────
+    // ─── 4. Kategori ─────────────────────────────────────────────────────────
     console.log('\n📂 Mengisi kategori...');
     const categories = [
         { name: 'JavaScript', description: 'Buku tentang JavaScript dan framework terkait' },
@@ -76,7 +95,7 @@ async function main() {
         console.log(`  + ${cat.name}`);
     }
 
-    // ─── 4. Buku & Salinan ───────────────────────────────────────────────────
+    // ─── 5. Buku & Salinan ───────────────────────────────────────────────────
     console.log('\n📚 Mengisi buku dan salinan...');
     const books = [
         {
