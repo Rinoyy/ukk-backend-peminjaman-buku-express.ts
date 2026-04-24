@@ -113,14 +113,14 @@ Return 201 Created
 
 #### Fase 2: Persetujuan Admin/Petugas
 ```
-PATCH /api/borrow/:id/approve  { status: 'BORROWED' }
+POST /api/borrow/:id/approve  { status: 'BORROWED' }
      ↓
 Prisma $transaction:
   1. Borrowing → status: BORROWED, borrowDate: now, dueDate: now + 7 hari
   2. BookCopy → status: BORROWED
   3. Notification → type: BORROW_APPROVED, pesan ke siswa
 
-PATCH /api/borrow/:id/approve  { status: 'REJECTED', rejectReason }
+POST /api/borrow/:id/approve  { status: 'REJECTED', rejectReason }
      ↓
 Prisma $transaction:
   1. Borrowing → status: REJECTED, rejectReason
@@ -130,7 +130,7 @@ Prisma $transaction:
 
 #### Fase 3: Pengambilan Buku
 ```
-PATCH /api/borrow/:id/pickup
+POST /api/borrow/:id/pickup
      ↓
 Borrowing.isPickedUp = true
      ↓
@@ -139,7 +139,7 @@ Siswa baru bisa mengajukan pengembalian setelah ini
 
 #### Fase 4: Pengajuan Pengembalian (Siswa)
 ```
-PATCH /api/borrow/:id/return
+POST /api/borrow/:id/return
      ↓
 Syarat: status = BORROWED dan isPickedUp = true
      ↓
@@ -148,7 +148,7 @@ Borrowing → status: RETURN_PENDING
 
 #### Fase 5: Verifikasi Pengembalian (Admin/Petugas)
 ```
-PATCH /api/borrow/:id/verify-return  { condition, damageFee }
+POST /api/borrow/:id/verify-return  { condition, damageFee }
      ↓
 Hitung denda:
   daysLate = ceil((actualReturnDate - dueDate) / 86_400_000)
@@ -165,7 +165,7 @@ isPaid = (totalFine === 0)  ← otomatis true jika tidak ada denda
 
 #### Fase 6: Pembayaran Denda
 ```
-POST /api/borrow/:id/pay-fine  { amountPaid }
+POST /api/borrow/:id/pay  { amountPaid }
      ↓
 Syarat: amountPaid >= totalFine
      ↓

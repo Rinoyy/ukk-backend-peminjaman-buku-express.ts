@@ -56,16 +56,17 @@ express-qr-backend/
 │   ├── cron.ts                 # Cron job: auto-cancel pending borrowings > 24 jam
 │   │
 │   ├── routes/                 # Route definitions (URL mapping)
-│   │   ├── auth.routes.ts      # /api/auth
-│   │   ├── book.routes.ts      # /api/books
-│   │   ├── borrow.routes.ts    # /api/borrow
-│   │   ├── user.routes.ts      # /api/users
-│   │   ├── visit.routes.ts     # /api/visits
+│   │   ├── auth.routes.ts          # /api/auth
+│   │   ├── book.routes.ts          # /api/books
+│   │   ├── borrow.routes.ts        # /api/borrow
+│   │   ├── user.routes.ts          # /api/users
+│   │   ├── visit.routes.ts         # /api/visits
 │   │   ├── notification.routes.ts  # /api/notifications
-│   │   ├── category.routes.ts  # /api/categories
-│   │   ├── bookCopy.routes.ts  # /api/book-copies
-│   │   ├── qr.ts               # /api/qr
-│   │   └── export.routes.ts    # /api/export
+│   │   ├── category.routes.ts      # /api/categories
+│   │   ├── bookCopy.routes.ts      # /api/book-copies
+│   │   ├── studentNisn.routes.ts   # /api/student-nisns
+│   │   ├── qr.routes.ts            # /api/qr
+│   │   └── export.routes.ts        # /api/export
 │   │
 │   ├── controllers/            # Business logic per domain
 │   │   ├── auth.controller.ts          # register, login
@@ -76,10 +77,14 @@ express-qr-backend/
 │   │   ├── notification.controller.ts  # ambil + mark-read notifikasi
 │   │   ├── category.controller.ts      # CRUD kategori
 │   │   ├── bookCopy.controller.ts      # kelola eksemplar buku
-│   │   └── export.controller.ts        # export CSV
+│   │   ├── studentNisn.controller.ts   # CRUD NISN whitelist siswa
+│   │   └── export.controller.ts        # export 7 jenis CSV
 │   │
 │   ├── middlewares/
 │   │   └── auth.middleware.ts  # JWT verification + role checking
+│   │
+│   ├── config/
+│   │   └── multer.ts           # Konfigurasi upload gambar buku (file storage)
 │   │
 │   ├── utils/
 │   │   ├── qr.ts               # QR code generation helper
@@ -172,7 +177,7 @@ async function register(req, res) {
 ```typescript
 // middlewares/auth.middleware.ts
 
-export const verifyToken = (req, res, next) => {
+export const authenticateJWT = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1]
   if (!token) return res.status(401).json({ message: 'Unauthorized' })
 
@@ -185,7 +190,7 @@ export const verifyToken = (req, res, next) => {
   }
 }
 
-export const requireRole = (...roles: string[]) => (req, res, next) => {
+export const authorizeRole = (roles: string[]) => (req, res, next) => {
   if (!roles.includes(req.user.role)) {
     return res.status(403).json({ message: 'Forbidden' })
   }
@@ -197,14 +202,14 @@ export const requireRole = (...roles: string[]) => (req, res, next) => {
 
 ```typescript
 // routes/borrow.routes.ts
-router.get('/',                   verifyToken,                              borrowController.getBorrowings)
-router.post('/',                  verifyToken, requireRole('SISWA'),        borrowController.borrowBook)
-router.patch('/:id/cancel',       verifyToken, requireRole('SISWA'),        borrowController.cancelBorrow)
-router.patch('/:id/approve',      verifyToken, requireRole('ADMIN','PETUGAS'), borrowController.handleBorrowRequest)
-router.patch('/:id/pickup',       verifyToken, requireRole('ADMIN','PETUGAS'), borrowController.markPickedUp)
-router.patch('/:id/return',       verifyToken, requireRole('SISWA'),        borrowController.returnBookRequest)
-router.patch('/:id/verify-return',verifyToken, requireRole('ADMIN','PETUGAS'), borrowController.handleReturnRequest)
-router.post('/:id/pay-fine',      verifyToken, requireRole('ADMIN','PETUGAS'), borrowController.payFine)
+router.get('/',                   authenticateJWT, authorizeRole(['ADMIN','PETUGAS','SISWA']), borrowController.getBorrowings)
+router.post('/',                  authenticateJWT, authorizeRole(['SISWA']),           borrowController.borrowBook)
+router.post('/:id/cancel',        authenticateJWT, authorizeRole(['SISWA']),           borrowController.cancelBorrow)
+router.post('/:id/approve',       authenticateJWT, authorizeRole(['ADMIN','PETUGAS']), borrowController.handleBorrowRequest)
+router.post('/:id/pickup',        authenticateJWT, authorizeRole(['ADMIN','PETUGAS']), borrowController.markPickedUp)
+router.post('/:id/return',        authenticateJWT, authorizeRole(['SISWA']),           borrowController.returnBookRequest)
+router.post('/:id/verify-return', authenticateJWT, authorizeRole(['ADMIN','PETUGAS']), borrowController.handleReturnRequest)
+router.post('/:id/pay',           authenticateJWT, authorizeRole(['ADMIN','PETUGAS']), borrowController.payFine)
 ```
 
 ---
@@ -679,12 +684,12 @@ await prisma.$transaction([
 | GET | `/api/borrow/my-fines` | ✓ | SISWA | Denda belum lunas |
 | GET | `/api/borrow/fines-recap` | ✓ | ADMIN/PETUGAS | Rekap denda |
 | POST | `/api/borrow` | ✓ | SISWA | Ajukan pinjam |
-| PATCH | `/api/borrow/:id/cancel` | ✓ | SISWA | Batalkan PENDING |
-| PATCH | `/api/borrow/:id/approve` | ✓ | ADMIN/PETUGAS | Setujui/Tolak |
-| PATCH | `/api/borrow/:id/pickup` | ✓ | ADMIN/PETUGAS | Tandai sudah diambil |
-| PATCH | `/api/borrow/:id/return` | ✓ | SISWA | Ajukan pengembalian |
-| PATCH | `/api/borrow/:id/verify-return` | ✓ | ADMIN/PETUGAS | Verifikasi + hitung denda |
-| POST | `/api/borrow/:id/pay-fine` | ✓ | ADMIN/PETUGAS | Proses pembayaran |
+| POST | `/api/borrow/:id/cancel` | ✓ | SISWA | Batalkan PENDING |
+| POST | `/api/borrow/:id/approve` | ✓ | ADMIN/PETUGAS | Setujui/Tolak |
+| POST | `/api/borrow/:id/pickup` | ✓ | ADMIN/PETUGAS | Tandai sudah diambil |
+| POST | `/api/borrow/:id/return` | ✓ | SISWA | Ajukan pengembalian |
+| POST | `/api/borrow/:id/verify-return` | ✓ | ADMIN/PETUGAS | Verifikasi + hitung denda |
+| POST | `/api/borrow/:id/pay` | ✓ | ADMIN/PETUGAS | Proses pembayaran denda |
 
 ### Visits
 | Method | Endpoint | Auth | Role | Deskripsi |
@@ -694,16 +699,52 @@ await prisma.$transaction([
 | GET | `/api/visits` | ✓ | ADMIN/PETUGAS | Semua kunjungan |
 | GET | `/api/visits/today/count` | ✓ | ADMIN/PETUGAS | Jumlah hari ini |
 
+### Categories
+| Method | Endpoint | Auth | Role | Deskripsi |
+|---|---|---|---|---|
+| GET | `/api/categories` | ✓ | All | Daftar kategori |
+| POST | `/api/categories` | ✓ | ADMIN | Tambah kategori |
+| PUT | `/api/categories/:id` | ✓ | ADMIN | Update kategori |
+| DELETE | `/api/categories/:id` | ✓ | ADMIN | Hapus kategori |
+
+### Users
+| Method | Endpoint | Auth | Role | Deskripsi |
+|---|---|---|---|---|
+| GET | `/api/users` | ✓ | ADMIN/PETUGAS | Daftar semua user |
+| GET | `/api/users/:id` | ✓ | ADMIN/PETUGAS | Detail user |
+| POST | `/api/users` | ✓ | ADMIN | Tambah akun petugas |
+| DELETE | `/api/users/:id` | ✓ | ADMIN | Hapus user |
+
+### Student NISNs
+| Method | Endpoint | Auth | Role | Deskripsi |
+|---|---|---|---|---|
+| GET | `/api/student-nisns` | ✓ | ADMIN/PETUGAS | Daftar NISN whitelist |
+| POST | `/api/student-nisns` | ✓ | ADMIN/PETUGAS | Tambah NISN baru |
+| PUT | `/api/student-nisns/:id` | ✓ | ADMIN/PETUGAS | Update NISN |
+| DELETE | `/api/student-nisns/:id` | ✓ | ADMIN/PETUGAS | Hapus NISN |
+
+### Notifications
+| Method | Endpoint | Auth | Role | Deskripsi |
+|---|---|---|---|---|
+| GET | `/api/notifications` | ✓ | Login | Notifikasi saya (maks. 50) |
+| POST | `/api/notifications/:id/read` | ✓ | Login | Tandai satu notifikasi dibaca |
+| POST | `/api/notifications/read-all` | ✓ | Login | Tandai semua notifikasi dibaca |
+
+### Export CSV
+| Method | Endpoint | Auth | Role | Deskripsi |
+|---|---|---|---|---|
+| GET | `/api/export/books` | ✓ | ADMIN | Export data buku |
+| GET | `/api/export/categories` | ✓ | ADMIN | Export kategori |
+| GET | `/api/export/borrowings` | ✓ | ADMIN | Export peminjaman aktif |
+| GET | `/api/export/returns` | ✓ | ADMIN | Export riwayat pengembalian |
+| GET | `/api/export/users` | ✓ | ADMIN | Export data siswa |
+| GET | `/api/export/damaged` | ✓ | ADMIN | Export buku rusak/hilang |
+| GET | `/api/export/visits` | ✓ | ADMIN | Export data kunjungan |
+
 ### Lainnya
 | Method | Endpoint | Auth | Role | Deskripsi |
 |---|---|---|---|---|
-| GET/POST/PUT/DELETE | `/api/categories` | varies | All/ADMIN | Manajemen kategori |
-| GET/POST/DELETE | `/api/users` | ✓ | ADMIN | Manajemen user |
-| GET | `/api/notifications` | ✓ | Login | Notifikasi saya |
-| PATCH | `/api/notifications/:id/read` | ✓ | Login | Tandai dibaca |
-| PATCH | `/api/notifications/read-all` | ✓ | Login | Tandai semua dibaca |
-| GET | `/api/qr?text=...` | ❌ | — | Generate QR image |
-| GET | `/api/export/*` | ✓ | ADMIN/PETUGAS | Export CSV |
+| GET | `/api/qr?text=...` | ❌ | — | Generate QR image (PNG) |
 
 ---
 
