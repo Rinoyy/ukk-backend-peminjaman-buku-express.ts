@@ -25,46 +25,59 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const { nisn, password } = req.body;
 
     if (!nisn || !password) {
-        res.status(400).json({ message: 'NISN dan password wajib diisi.' });
+        res.status(400).json({ message: 'NISN/NIP dan password wajib diisi.' });
         return;
     }
 
     try {
-        // Cek apakah NISN terdaftar di data sekolah
+        // Cek StudentNISN terlebih dahulu
         const validNISN = await prisma.studentNISN.findUnique({ where: { nisn } });
-        if (!validNISN) {
-            res.status(403).json({ message: 'NISN tidak terdaftar di sistem sekolah. Hubungi admin.' });
+
+        if (validNISN) {
+            // Alur SISWA
+            const nisnTaken = await prisma.user.findUnique({ where: { nisn } });
+            if (nisnTaken) {
+                res.status(400).json({ message: 'NISN sudah digunakan untuk akun lain.' });
+                return;
+            }
+
+            const hashedPassword = await bcrypt.hash(password, 10);
+            const user = await prisma.user.create({
+                data: { username: validNISN.name, nisn, password: hashedPassword, role: 'SISWA' },
+            });
+
+            const qrData = JSON.stringify({ id: user.id, role: user.role, nisn: user.nisn, valid: true });
+            const qrCodeImage = await generateQRCode(qrData);
+            const updatedUser = await prisma.user.update({ where: { id: user.id }, data: { qrCode: qrCodeImage } });
+
+            res.status(201).json({ message: 'Registrasi siswa berhasil', user: updatedUser });
             return;
         }
 
-        // Cek apakah NISN sudah dipakai akun lain
-        const nisnTaken = await prisma.user.findUnique({ where: { nisn } });
-        if (nisnTaken) {
-            res.status(400).json({ message: 'NISN sudah digunakan untuk akun lain.' });
+        // Tidak ada di StudentNISN — cari di StaffNIP
+        const validNIP = await prisma.staffNIP.findUnique({ where: { nip: nisn } });
+        if (!validNIP) {
+            res.status(403).json({ message: 'NISN/NIP tidak terdaftar di sistem sekolah. Hubungi admin.' });
+            return;
+        }
+
+        // Alur GURU / STAFF
+        const nipTaken = await prisma.user.findUnique({ where: { nip: nisn } });
+        if (nipTaken) {
+            res.status(400).json({ message: 'NIP sudah digunakan untuk akun lain.' });
             return;
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-
-        // username = nisn agar kolom non-null tetap terpenuhi
         const user = await prisma.user.create({
-            data: {
-                username: validNISN.name,
-                nisn,
-                password: hashedPassword,
-                role: 'SISWA',
-            },
+            data: { username: validNIP.name, nip: nisn, password: hashedPassword, role: validNIP.role },
         });
 
-        const qrData = JSON.stringify({ id: user.id, role: user.role, nisn: user.nisn, valid: true });
+        const qrData = JSON.stringify({ id: user.id, role: user.role, nip: user.nip, valid: true });
         const qrCodeImage = await generateQRCode(qrData);
+        const updatedUser = await prisma.user.update({ where: { id: user.id }, data: { qrCode: qrCodeImage } });
 
-        const updatedUser = await prisma.user.update({
-            where: { id: user.id },
-            data: { qrCode: qrCodeImage },
-        });
-
-        res.status(201).json({ message: 'Registrasi berhasil', user: updatedUser });
+        res.status(201).json({ message: `Registrasi ${validNIP.role.toLowerCase()} berhasil`, user: updatedUser });
     } catch (error) {
         res.status(500).json({ message: 'Error registering user', error });
     }
