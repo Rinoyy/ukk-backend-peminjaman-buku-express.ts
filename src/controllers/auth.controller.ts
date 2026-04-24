@@ -84,43 +84,44 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 };
 
 /**
- * Login untuk semua role (Siswa pakai NISN, Guru/Staff/Admin/Petugas pakai NIP).
+ * Login untuk semua role (Siswa pakai NISN, Guru/Staff pakai NIP, Admin/Petugas pakai username).
  *
  * Mengembalikan JWT token dan data user. Token berlaku 1 jam.
  *
  * @route  POST /api/auth/login
  * @access Public
- * @param  req - Request body: { nisn?, nip?, password }
+ * @param  req - Request body: { nisn?, nip?, username?, password }
  * @param  res - 200 { token, user } | 400 kredensial salah | 500 server error
  */
 export const login = async (req: Request, res: Response): Promise<void> => {
-    const { nisn, nip, password } = req.body;
-    const identifier = (nisn || nip || '').trim();
+    const { nisn, nip, username, password } = req.body;
+    const identifier = (nisn || nip || username || '').trim();
 
     if (!identifier || !password) {
-        res.status(400).json({ message: 'NISN/NIP dan password wajib diisi.' });
+        res.status(400).json({ message: 'NISN/NIP/username dan password wajib diisi.' });
         return;
     }
 
     try {
-        // Cari user berdasarkan NISN atau NIP
+        // Cari user berdasarkan NISN, NIP, atau username
         const user = await prisma.user.findFirst({
             where: {
                 OR: [
                     { nisn: identifier },
                     { nip: identifier },
+                    { username: identifier },
                 ],
             },
         });
 
         if (!user) {
-            res.status(400).json({ message: 'NISN/NIP atau password salah.' });
+            res.status(400).json({ message: 'NISN/NIP/username atau password salah.' });
             return;
         }
 
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
-            res.status(400).json({ message: 'NISN/NIP atau password salah.' });
+            res.status(400).json({ message: 'NISN/NIP/username atau password salah.' });
             return;
         }
 
