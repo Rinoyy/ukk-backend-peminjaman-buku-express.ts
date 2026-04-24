@@ -84,50 +84,59 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 };
 
 /**
- * Login untuk semua role (Siswa pakai NISN, Admin/Petugas pakai username).
+ * Login untuk semua role (Siswa pakai NISN, Guru/Staff/Admin/Petugas pakai NIP).
  *
  * Mengembalikan JWT token dan data user. Token berlaku 1 jam.
  *
  * @route  POST /api/auth/login
  * @access Public
- * @param  req - Request body: { nisn?, username?, password }
+ * @param  req - Request body: { nisn?, nip?, password }
  * @param  res - 200 { token, user } | 400 kredensial salah | 500 server error
  */
 export const login = async (req: Request, res: Response): Promise<void> => {
-    const { nisn, username, password } = req.body;
-    const identifier = (nisn || username || '').trim();
+    const { nisn, nip, password } = req.body;
+    const identifier = (nisn || nip || '').trim();
+
+    if (!identifier || !password) {
+        res.status(400).json({ message: 'NISN/NIP dan password wajib diisi.' });
+        return;
+    }
 
     try {
-        // Cari user berdasarkan NISN, NIP, atau username
+        // Cari user berdasarkan NISN atau NIP
         const user = await prisma.user.findFirst({
             where: {
                 OR: [
                     { nisn: identifier },
                     { nip: identifier },
-                    { username: identifier },
                 ],
             },
         });
 
         if (!user) {
-            res.status(400).json({ message: 'NISN/username atau password salah.' });
+            res.status(400).json({ message: 'NISN/NIP atau password salah.' });
             return;
         }
 
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
-            res.status(400).json({ message: 'NISN/username atau password salah.' });
+            res.status(400).json({ message: 'NISN/NIP atau password salah.' });
             return;
         }
 
         const token = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
 
-        // Sertakan nama dari StudentNISN jika siswa
+        // Ambil nama dari StudentNISN (siswa) atau StaffNIP (guru/staff)
         const studentInfo = user.nisn
             ? await prisma.studentNISN.findUnique({ where: { nisn: user.nisn } })
             : null;
+        const staffInfo = !studentInfo && user.nip
+            ? await prisma.staffNIP.findUnique({ where: { nip: user.nip } })
+            : null;
 
-        res.json({ token, user: { ...user, name: studentInfo?.name ?? null } });
+        const name = studentInfo?.name ?? staffInfo?.name ?? null;
+
+        res.json({ token, user: { ...user, name } });
     } catch (error) {
         res.status(500).json({ message: 'Error logging in', error });
     }
